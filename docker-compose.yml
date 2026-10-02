@@ -1,0 +1,20 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: spotify_backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      # Optional: set to your Turso or Supabase URL in production.
+      # If left empty, it defaults to local SQLite (/app/local_storage/music.db).
+      - DATABASE_URL=${DATABASE_URL:-}
+      - TURSO_DB_URL=${TURSO_DB_URL:-}
+      - TURSO_AUTH_TOKEN=${TURSO_AUTH_TOKEN:-}
+      - SPOTIFY_CLIENT_ID=${SPOTIFY_CLIENT_ID:-}
+      - SPOTIFY_CLIENT_SECRET=${SPOTIFY_CLIENT_SECRET:-}
+    volumes:
+      # Mount local_storage so audio files and sqlite database persist across container updates
+      - ./backend/local_storage:/app/local_storage

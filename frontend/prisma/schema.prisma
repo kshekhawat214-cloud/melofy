@@ -1,0 +1,87 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id               String       @id @default(uuid())
+  email            String       @unique
+  name             String?
+  passwordHash     String
+  preferences      Json?
+  
+  // Vectors for recommendation logic
+  genreAffinities  Json?        // e.g. {"rock": 0.8, "pop": 0.2}
+  moodAffinities   Json?
+  artistAffinities Json?
+
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  interactions     Interaction[]
+  playlists        Playlist[]
+}
+
+model Song {
+  id               String       @id @default(uuid())
+  title            String
+  artist           String
+  album            String?
+  genre            String?
+  mood             String?
+  tempo            Float?
+  energy           Float?
+  popularity       Float?       @default(0)
+  
+  audioPath        String       // Local FS path to mp3
+  coverPath        String?      // Local FS path to cover image
+  sourceUrl        String?      // E.g., original youtube link if downloaded
+
+  createdAt        DateTime     @default(now())
+  
+  interactions     Interaction[]
+  playlistSongs    PlaylistSong[]
+}
+
+model Interaction {
+  id               String       @id @default(uuid())
+  userId           String
+  songId           String
+  interactionType  String       // 'LIKE', 'SKIP', 'REPLAY', 'DOWNLOAD', 'PLAY'
+  context          String?      // e.g. 'morning', 'workout'
+  timestamp        DateTime     @default(now())
+
+  user             User         @relation(fields: [userId], references: [id])
+  song             Song         @relation(fields: [songId], references: [id])
+
+  @@index([userId, songId])
+}
+
+model Playlist {
+  id               String       @id @default(uuid())
+  title            String
+  userId           String?      // null if system generated
+  isSystemGenerated Boolean     @default(false)
+  
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  user             User?        @relation(fields: [userId], references: [id])
+  songs            PlaylistSong[]
+}
+
+model PlaylistSong {
+  id               String       @id @default(uuid())
+  playlistId       String
+  songId           String
+  orderIndex       Int
+
+  playlist         Playlist     @relation(fields: [playlistId], references: [id])
+  song             Song         @relation(fields: [songId], references: [id])
+
+  @@unique([playlistId, songId])
+}
