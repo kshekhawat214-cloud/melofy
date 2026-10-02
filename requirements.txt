@@ -1,0 +1,15 @@
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.6
+yt-dlp>=2026.8.19
+sqlalchemy>=2.0.35
+pydantic>=2.9.2
+python-multipart>=0.0.12
+aiofiles>=24.1.0
+mutagen>=1.47.0
+numpy>=1.26.4
+scikit-learn>=1.5.2
+python-dotenv>=1.0.1
+requests>=2.32.0
+imageio-ffmpeg>=0.5.1
+libsql-client>=0.3.1
+gradio>=4.44.0

@@ -33,6 +33,7 @@ COPY . .
 # Ensure storage directories exist
 RUN mkdir -p /app/local_storage/audio /app/local_storage/covers
 
+ENV PYTHONPATH=/app:/app/backend
 ENV PORT=8000
 EXPOSE 8000
 
@@ -40,5 +41,5 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD curl -f http://localhost:${PORT:-8000}/ || exit 1
 
-# Launch production server with Uvicorn (reads $PORT dynamically from cloud host)
-CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# Launch production server (works whether context was root or backend/)
+CMD ["sh", "-c", "if [ -f main.py ]; then uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}; else cd backend && uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}; fi"]
