@@ -38,34 +38,45 @@ connect_args = {}
 if "libsql" in DATABASE_URL:
     try:
         import importlib
+        import urllib.parse
         importlib.import_module("sqlalchemy_libsql")
-        
-        # 1. Discover auth token from any env var or parse from DATABASE_URL
+
+        # 1. Discover auth token from env vars first
         auth_token = (
             os.getenv("TURSO_AUTH_TOKEN", "").strip()
             or os.getenv("TURSO_TOKEN", "").strip()
             or os.getenv("LIBSQL_AUTH_TOKEN", "").strip()
         )
-        if not auth_token and ("authToken=" in DATABASE_URL or "auth_token=" in DATABASE_URL):
-            import urllib.parse
-            parsed = urllib.parse.urlparse(DATABASE_URL)
-            qs = urllib.parse.parse_qs(parsed.query)
+
+        # If token is embedded in the URL, extract it and REMOVE it from the URL.
+        # libsql_experimental MUST NOT have authToken in the URL — it appends the
+        # full query string to the HTTP path (/v3/pipeline?authToken=...) causing 404.
+        parsed = urllib.parse.urlparse(DATABASE_URL)
+        qs = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
+
+        if not auth_token:
             tokens = qs.get("authToken") or qs.get("auth_token") or [""]
             auth_token = tokens[0].strip()
 
-        # 2. Pass snake_case auth_token directly to libsql_experimental DBAPI driver
+        # Strip authToken / auth_token from URL — keep only secure=true
+        qs.pop("authToken", None)
+        qs.pop("auth_token", None)
+        qs["secure"] = ["true"]
+
+        clean_query = urllib.parse.urlencode({k: v[0] for k, v in qs.items()})
+        DATABASE_URL = urllib.parse.urlunparse(
+            (parsed.scheme, parsed.netloc, parsed.path, parsed.params, clean_query, parsed.fragment)
+        )
+
+        # 2. Pass auth_token (snake_case) via connect_args to libsql_experimental DBAPI
         if auth_token:
             connect_args["auth_token"] = auth_token
-            logger.info("Turso/LibSQL DB configuration: auth_token detected and passed to DBAPI.")
+            logger.info("Turso/LibSQL: auth_token set via connect_args (not URL).")
         else:
-            logger.warning("Turso/LibSQL DB configuration: NO auth_token detected in environment!")
+            logger.warning("Turso/LibSQL: NO auth_token found — connection will fail with 401.")
 
-        # 3. Ensure SSL/TLS is enabled so Turso connects over HTTPS instead of triggering 308 Permanent Redirect
-        if "secure=" not in DATABASE_URL:
-            sep = "&" if "?" in DATABASE_URL else "?"
-            DATABASE_URL = f"{DATABASE_URL}{sep}secure=true"
     except ImportError:
-        logger.warning("sqlalchemy-libsql driver not available on this platform. Falling back to local SQLite.")
+        logger.warning("sqlalchemy-libsql not available. Falling back to local SQLite.")
         DATABASE_URL = DEFAULT_SQLITE_URL
 
 if "sqlite" in DATABASE_URL and "libsql" not in DATABASE_URL:
