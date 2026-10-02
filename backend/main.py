@@ -14,7 +14,10 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 logger = logging.getLogger(__name__)
 
 # Create DB tables on startup
-create_tables()
+try:
+    create_tables()
+except Exception as e:
+    logger.warning(f"Database table verification note: {e}")
 
 app = FastAPI(
     title="AI Music Smart Engine",

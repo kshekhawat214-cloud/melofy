@@ -24,16 +24,26 @@ if DATABASE_URL.startswith("postgres://"):
 if DATABASE_URL.startswith("libsql://"):
     DATABASE_URL = DATABASE_URL.replace("libsql://", "sqlite+libsql://", 1)
 
+connect_args = {}
+
 if "libsql" in DATABASE_URL:
     try:
         import importlib
         importlib.import_module("sqlalchemy_libsql")
+        
+        # Ensure SSL/TLS is enabled so Turso connects over HTTPS instead of triggering 308 Permanent Redirect
+        if "secure=" not in DATABASE_URL:
+            sep = "&" if "?" in DATABASE_URL else "?"
+            DATABASE_URL = f"{DATABASE_URL}{sep}secure=true"
+            
+        auth_token = os.getenv("TURSO_AUTH_TOKEN")
+        if auth_token and "authToken=" not in DATABASE_URL:
+            connect_args["auth_token"] = auth_token
     except ImportError:
         import logging
         logging.getLogger(__name__).warning("sqlalchemy-libsql driver not available on this platform. Falling back to local SQLite.")
         DATABASE_URL = DEFAULT_SQLITE_URL
 
-connect_args = {}
 if "sqlite" in DATABASE_URL and "libsql" not in DATABASE_URL:
     connect_args["check_same_thread"] = False
 
