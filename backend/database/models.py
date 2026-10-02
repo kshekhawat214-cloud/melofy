@@ -37,13 +37,14 @@ if "libsql" in DATABASE_URL:
         import importlib
         importlib.import_module("sqlalchemy_libsql")
         
+        # Normalize auth_token parameter to authToken for Hrana / Turso compatibility
+        if "auth_token=" in DATABASE_URL:
+            DATABASE_URL = DATABASE_URL.replace("auth_token=", "authToken=")
+
         auth_token = os.getenv("TURSO_AUTH_TOKEN", "").strip()
-        if auth_token:
-            if "authToken=" not in DATABASE_URL and "auth_token=" not in DATABASE_URL:
-                sep = "&" if "?" in DATABASE_URL else "?"
-                DATABASE_URL = f"{DATABASE_URL}{sep}authToken={auth_token}"
-            connect_args["auth_token"] = auth_token
-            connect_args["authToken"] = auth_token
+        if auth_token and "authToken=" not in DATABASE_URL:
+            sep = "&" if "?" in DATABASE_URL else "?"
+            DATABASE_URL = f"{DATABASE_URL}{sep}authToken={auth_token}"
 
         # Ensure SSL/TLS is enabled so Turso connects over HTTPS instead of triggering 308 Permanent Redirect
         if "secure=" not in DATABASE_URL:
