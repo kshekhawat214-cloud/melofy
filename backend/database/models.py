@@ -26,7 +26,8 @@ if DATABASE_URL.startswith("libsql://"):
 
 if "libsql" in DATABASE_URL:
     try:
-        import sqlalchemy_libsql
+        import importlib
+        importlib.import_module("sqlalchemy_libsql")
     except ImportError:
         import logging
         logging.getLogger(__name__).warning("sqlalchemy-libsql driver not available on this platform. Falling back to local SQLite.")
