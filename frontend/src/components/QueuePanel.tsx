@@ -1,6 +1,7 @@
 "use client"
 import { usePlayerStore } from "@/store/playerStore"
 import { X, Play, GripVertical, Trash2 } from "lucide-react"
+import { API_BASE } from "@/lib/api"
 
 export default function QueuePanel() {
   const { queue, currentSong, isQueueOpen, toggleQueue, setCurrentSong } = usePlayerStore()
@@ -22,7 +23,11 @@ export default function QueuePanel() {
           <p className="text-xs font-bold text-[#b3b3b3] uppercase tracking-wider mb-3">Now playing</p>
           {currentSong && (
             <div className="flex items-center p-2 rounded-md bg-white/5 group border border-white/10">
-              <img src={`http://127.0.0.1:8000/api/songs/${currentSong.id}/cover`} className="w-10 h-10 rounded shadow-lg mr-3" />
+              <img 
+                src={currentSong.thumbnailUrl || (currentSong.coverUrl ? `${API_BASE}${currentSong.coverUrl}` : `${API_BASE}/api/songs/${currentSong.id}/cover`)} 
+                className="w-10 h-10 rounded shadow-lg mr-3 object-cover" 
+                alt={currentSong.title}
+              />
               <div className="flex-grow min-w-0">
                 <p className="text-sm font-semibold text-[#1db954] truncate">{currentSong.title}</p>
                 <p className="text-xs text-[#b3b3b3] truncate">{currentSong.artist}</p>
@@ -49,7 +54,11 @@ export default function QueuePanel() {
                     onClick={() => setCurrentSong(song)}
                   >
                     <div className="relative w-10 h-10 mr-3 flex-shrink-0">
-                      <img src={`http://127.0.0.1:8000/api/songs/${song.id}/cover`} className="w-full h-full rounded shadow" />
+                      <img 
+                        src={song.thumbnailUrl || (song.coverUrl ? `${API_BASE}${song.coverUrl}` : `${API_BASE}/api/songs/${song.id}/cover`)} 
+                        className="w-full h-full rounded shadow object-cover" 
+                        alt={song.title}
+                      />
                       <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity rounded">
                         <Play size={16} fill="white" stroke="none" />
                       </div>

@@ -9,7 +9,7 @@ export const APP_CONFIG = {
     displayName: "Guest",
     avatarUrl: "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&q=80",
   },
-  apiBase: process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000",
+  apiBase: (process.env.NEXT_PUBLIC_API_URL || "https://melofy-ubj8.onrender.com").replace(/\/$/, ""),
   accentColor: "#1DB954",
   accentColorHover: "#1ED760",
 }
