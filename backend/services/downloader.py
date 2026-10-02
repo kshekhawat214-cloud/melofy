@@ -163,10 +163,26 @@ UNWANTED_VERSION_KEYWORDS = [
     "remix", "reverb", "slowed", "slow", "speed", "sped", "sped up", "speed up",
     "bass boosted", "bassboosted", "8d", "lofi", "lo-fi", "cover", "acoustic",
     "mashup", "live", "concert", "karaoke", "instrumental", "status", "tiktok",
-    "reels", "ringtone", "unplugged", "parody", "reaction", "review", "dance",
+    "reels", "ringtone", "unplugged", "parody", "reaction", "review",
     "choreography", "teaser", "trailer", "female version", "male version",
     "stripped", "extended", "drill", "remake", "female cover", "male cover",
-    "piano cover", "guitar cover", "shorts"
+    "piano cover", "guitar cover", "shorts",
+    # Specific dance/club/jhankar remixes that previously corrupted Bollywood & Punjabi tracks
+    "jhankar", "dj mix", "club mix", "dance mix", "hip hop mix", "dholki", "trap mix", "dhol mix",
+    "trance mix", "house mix", "lo-fi mix", "mash up"
+]
+
+OFFICIAL_LABEL_CHANNELS = [
+    "tips official", "tips files", "tips music", "tips i miss u",
+    "t-series", "t-series regional", "t-series apna punjab", "tseries",
+    "zee music company", "zee music",
+    "sony music india", "sony music", "sonymusicindiavevo",
+    "yrf", "yash raj films",
+    "saregama music", "saregama",
+    "ur debut", "speed records", "geet mp3",
+    "white hill music", "desi music factory", "dm - desi music factory",
+    "jjust music", "vyrl originals", "aditya music", "lahari music",
+    "universal music india", "warner music india", "times music"
 ]
 
 JIOSAAVN_HEADERS = {
@@ -369,11 +385,17 @@ async def smart_download(query: str, expected_meta: Dict[str, Any]):
 
     clean_expected = clean_song_title(expected_title)
     lead_artist = expected_artist.split(",")[0].strip() if expected_artist else ""
+    album = expected_meta.get("album", "")
+    clean_album = clean_song_title(album) if album and album.lower() != expected_title.lower() else ""
 
     # Check cache first (with duration sanity check)
     for ext in ["mp3", "m4a", "webm", "opus", "aac", "wav"]:
         potential_path = AUDIO_DIR / f"{track_id}.{ext}"
         if potential_path.exists() and potential_path.stat().st_size > 1024 * 100:
+            if track_id in {"5ThyDv6aRVU8AH4vXQNldF", "0xlWd9o8yjKpJ02WJy79kZ", "5PetOhEX9N0oyBB0Keqobv"}:
+                logger.warning(f"Purging reported track {track_id} to re-resolve authentic version.")
+                potential_path.unlink(missing_ok=True)
+                continue
             # Check duration mismatch if expected duration is known
             try:
                 from mutagen import File as MutagenFile
@@ -443,12 +465,19 @@ async def smart_download(query: str, expected_meta: Dict[str, Any]):
                 logger.info(f"JioSaavn download failed, falling back to YouTube: {saavn_err}")
 
     # 2. Strict Official-First YouTube Search
-    search_queries = [
+    search_queries = []
+    if clean_album:
+        search_queries.append(f"{clean_expected} {clean_album} {lead_artist} - Topic")
+        search_queries.append(f"{clean_expected} {clean_album} {lead_artist} Official")
+        search_queries.append(f"{clean_expected} {clean_album} {lead_artist}")
+
+    search_queries.extend([
         f"{clean_expected} {lead_artist} - Topic",
+        f"{clean_expected} {expected_artist} Official",
         f"{clean_expected} {lead_artist} Official Audio",
-        f"{clean_expected} {lead_artist} Official",
+        f"{clean_expected} {lead_artist} Official Video",
         f"{clean_expected} {lead_artist}",
-    ]
+    ])
 
     for q in search_queries:
         try:
@@ -480,41 +509,66 @@ async def smart_download(query: str, expected_meta: Dict[str, Any]):
                     if has_unwanted:
                         score -= 10.0  # Disqualify remixes, covers, slowed+reverbs, etc.
 
-                    # 2. Official Channel Boosts
+                    # 2. Official Channel & Label Boosts
                     if u_lower.endswith("- topic"):
-                        score += 2.0  # Official YouTube Music release!
-                    elif "official audio" in t_lower:
-                        score += 1.2
+                        score += 3.0  # Official YouTube Music release!
+                    elif any(lbl in u_lower for lbl in OFFICIAL_LABEL_CHANNELS):
+                        score += 2.5  # Official Record Label! (Tips, T-Series, UR Debut, Sony, Zee, etc.)
+                    elif "official" in u_lower or "vevo" in u_lower:
+                        score += 1.5
+
+                    # Video title badges
+                    if "official audio" in t_lower:
+                        score += 1.5
                     elif "official music video" in t_lower or "official video" in t_lower:
+                        score += 1.2
+                    elif "lyrical" in t_lower:
                         score += 0.8
                     elif "official" in t_lower:
                         score += 0.5
 
                     # 3. Exact or partial title containment
                     if c_lower in t_lower:
-                        score += 0.6
+                        score += 1.0
                     else:
-                        score += similarity(t_lower, c_lower) * 0.4
+                        sim = similarity(t_lower, c_lower)
+                        if sim > 0.6:
+                            score += sim * 0.8
+                        else:
+                            score -= 2.0  # Penalize title mismatch
 
-                    # 4. Artist containment
-                    if lead_artist and lead_artist.lower() in t_lower:
-                        score += 0.4
-                    elif lead_artist and lead_artist.lower() in u_lower:
-                        score += 0.4
-                    elif expected_artist and any(part.strip().lower() in t_lower for part in expected_artist.split(",") if len(part.strip()) > 3):
-                        score += 0.3
+                    # 4. Album / Movie OST match boost (e.g. Prince for Tere Liye)
+                    if clean_album and clean_album.lower() in t_lower:
+                        score += 1.0
 
-                    # 5. Duration Check (Strict)
+                    # 5. Strict Artist Matching & Penalty
+                    artist_parts = [p.strip().lower() for p in re.split(r"[,&/]", expected_artist) if len(p.strip()) >= 3]
+                    artist_matched = False
+                    if artist_parts:
+                        desc_lower = entry.get("description", "").lower() if entry.get("description") else ""
+                        for ap in artist_parts:
+                            if ap in t_lower or ap in u_lower or ap in desc_lower:
+                                artist_matched = True
+                                score += 1.0
+                                break
+                        if not artist_matched:
+                            # None of the song's artists appear in title or uploader!
+                            # Heavily penalize to avoid downloading completely different songs with the same name (e.g. "Finding Her")
+                            score -= 4.0
+
+                    # 6. Duration Verification (Strict)
                     if expected_duration > 0 and yt_duration > 0:
                         diff = abs(expected_duration - yt_duration)
-                        if diff < 10:
-                            score += 0.5
-                        elif diff < 25:
-                            score += 0.2
+                        ratio = diff / expected_duration
+                        if diff <= 8:
+                            score += 1.0  # Exact match
+                        elif diff <= 20:
+                            score += 0.4
+                        elif ratio > 0.35 and diff > 30:
+                            # Disqualify truncated previews (1:23 vs 3:53) or looped compilations
+                            score -= 10.0
                         elif diff > 40:
-                            score -= 2.0
-                        elif diff > 90:
-                            score -= 10.0  # Disqualify compilations / truncated clips
+                            score -= 3.0
 
                     matches.append((score, entry))
 

@@ -227,7 +227,6 @@ export default function Player() {
           key={currentSong.id}
           ref={audioRef}
           src={getFullAudioUrl(currentSong.streamUrl)}
-          crossOrigin="anonymous"
           preload="auto"
           onLoadStart={() => setIsBuffering(true)}
           onLoadedData={() => setIsBuffering(false)}
@@ -235,8 +234,16 @@ export default function Player() {
           onLoadedMetadata={handleTimeUpdate}
           onWaiting={() => setIsBuffering(true)}
           onPlaying={() => setIsBuffering(false)}
-          onCanPlay={() => setIsBuffering(false)}
-          onError={() => setIsBuffering(false)}
+          onCanPlay={() => {
+            setIsBuffering(false)
+            if (isPlaying && audioRef.current && audioRef.current.paused) {
+              audioRef.current.play().catch((err) => console.log("Audio autoplay prevented:", err))
+            }
+          }}
+          onError={(e) => {
+            console.error("Audio stream error:", e)
+            setIsBuffering(false)
+          }}
           onEnded={playNext}
         />
       )}

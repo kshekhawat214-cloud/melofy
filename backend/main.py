@@ -19,6 +19,15 @@ try:
 except Exception as e:
     logger.warning(f"Database table verification note: {e}")
 
+import mimetypes
+
+# Explicitly register audio MIME types for Linux/Docker environments
+mimetypes.add_type("audio/mp4", ".m4a")
+mimetypes.add_type("audio/x-m4a", ".m4a")
+mimetypes.add_type("audio/mpeg", ".mp3")
+mimetypes.add_type("audio/webm", ".webm")
+mimetypes.add_type("audio/ogg", ".opus")
+
 def verify_and_clean_audio_cache():
     """Scans local audio files and purges any file whose duration differs from official DB duration by > 30%."""
     try:
@@ -30,11 +39,23 @@ def verify_and_clean_audio_cache():
             db.close()
             return
         
+        # Explicit purge list for reported tracks needing re-resolution
+        PURGE_IDS = {"5ThyDv6aRVU8AH4vXQNldF", "0xlWd9o8yjKpJ02WJy79kZ", "5PetOhEX9N0oyBB0Keqobv"}
+
         cleaned = 0
         for f in audio_dir.iterdir():
             if f.is_file() and f.suffix in [".mp3", ".m4a", ".webm", ".opus"]:
                 song_id = f.stem
                 song = db.query(Song).filter(Song.id == song_id).first()
+                if song_id in PURGE_IDS:
+                    logger.warning(f"Startup clean: Purging explicitly reported track {f.name}")
+                    f.unlink(missing_ok=True)
+                    if song:
+                        song.audio_path = None
+                        db.commit()
+                    cleaned += 1
+                    continue
+
                 if song and song.duration and song.duration > 30:
                     try:
                         mf = MutagenFile(str(f))
