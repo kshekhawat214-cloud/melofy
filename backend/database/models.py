@@ -14,15 +14,21 @@ DEFAULT_SQLITE_URL = f"sqlite:///{DB_DIR / 'music.db'}"
 
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 if not DATABASE_URL:
-    DATABASE_URL = DEFAULT_SQLITE_URL
+    turso_url = os.getenv("TURSO_DB_URL", "").strip()
+    if turso_url:
+        DATABASE_URL = turso_url
+    else:
+        DATABASE_URL = DEFAULT_SQLITE_URL
 
 # Normalize Postgres URLs (e.g. Supabase postgres:// -> postgresql://)
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
-# Normalize Turso URLs (libsql:// -> sqlite+libsql://)
+# Normalize Turso URLs (libsql:// -> sqlite+libsql://, https://...turso.io -> sqlite+libsql://...)
 if DATABASE_URL.startswith("libsql://"):
     DATABASE_URL = DATABASE_URL.replace("libsql://", "sqlite+libsql://", 1)
+elif DATABASE_URL.startswith("https://") and "turso.io" in DATABASE_URL:
+    DATABASE_URL = DATABASE_URL.replace("https://", "sqlite+libsql://", 1)
 
 connect_args = {}
 
@@ -31,14 +37,18 @@ if "libsql" in DATABASE_URL:
         import importlib
         importlib.import_module("sqlalchemy_libsql")
         
+        auth_token = os.getenv("TURSO_AUTH_TOKEN", "").strip()
+        if auth_token:
+            if "authToken=" not in DATABASE_URL and "auth_token=" not in DATABASE_URL:
+                sep = "&" if "?" in DATABASE_URL else "?"
+                DATABASE_URL = f"{DATABASE_URL}{sep}authToken={auth_token}"
+            connect_args["auth_token"] = auth_token
+            connect_args["authToken"] = auth_token
+
         # Ensure SSL/TLS is enabled so Turso connects over HTTPS instead of triggering 308 Permanent Redirect
         if "secure=" not in DATABASE_URL:
             sep = "&" if "?" in DATABASE_URL else "?"
             DATABASE_URL = f"{DATABASE_URL}{sep}secure=true"
-            
-        auth_token = os.getenv("TURSO_AUTH_TOKEN")
-        if auth_token and "authToken=" not in DATABASE_URL:
-            connect_args["auth_token"] = auth_token
     except ImportError:
         import logging
         logging.getLogger(__name__).warning("sqlalchemy-libsql driver not available on this platform. Falling back to local SQLite.")
