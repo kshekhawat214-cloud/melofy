@@ -409,11 +409,13 @@ def execute_import_job(
                     p = Path(existing_song.audio_path)
                     audio_exists = p.exists() if p.is_absolute() else (AUDIO_DIR / p.name).exists()
                 if not audio_exists:
-                    p_id = AUDIO_DIR / f"{existing_song.id}.mp3"
-                    if p_id.exists():
-                        existing_song.audio_path = str(p_id)
-                        db.commit()
-                        audio_exists = True
+                    for ext in ["m4a", "mp3", "webm", "opus", "aac", "wav"]:
+                        p_id = AUDIO_DIR / f"{existing_song.id}.{ext}"
+                        if p_id.exists() and p_id.stat().st_size > 1024 * 50:
+                            existing_song.audio_path = str(p_id)
+                            db.commit()
+                            audio_exists = True
+                            break
                 if not audio_exists:
                     songs_needing_cache.append({
                         "id": existing_song.id,
@@ -425,9 +427,13 @@ def execute_import_job(
                         "source_url": existing_song.source_url,
                     })
             else:
-                # Check if audio file already exists locally for this ID
-                local_audio = AUDIO_DIR / f"{t_id}.mp3"
-                audio_p = str(local_audio) if (local_audio.exists() and local_audio.stat().st_size > 1024 * 50) else ""
+                # Check if audio file already exists locally for this ID across formats
+                audio_p = ""
+                for ext in ["m4a", "mp3", "webm", "opus", "aac", "wav"]:
+                    local_audio = AUDIO_DIR / f"{t_id}.{ext}"
+                    if local_audio.exists() and local_audio.stat().st_size > 1024 * 50:
+                        audio_p = str(local_audio)
+                        break
 
                 new_song = Song(
                     id=t_id,
@@ -524,13 +530,18 @@ def execute_import_job(
             logger.info(f"Starting background audio pre-caching for {len(songs_needing_cache)} tracks...")
             for s_info in songs_needing_cache:
                 try:
-                    # Check again if cached on disk
-                    cached_p = AUDIO_DIR / f"{s_info['id']}.mp3"
-                    if cached_p.exists() and cached_p.stat().st_size > 1024 * 50:
-                        s_rec = db.query(Song).filter(Song.id == s_info["id"]).first()
-                        if s_rec:
-                            s_rec.audio_path = str(cached_p)
-                            db.commit()
+                    # Check again if cached on disk across formats
+                    cached_found = False
+                    for ext in ["m4a", "mp3", "webm", "opus", "aac", "wav"]:
+                        cached_p = AUDIO_DIR / f"{s_info['id']}.{ext}"
+                        if cached_p.exists() and cached_p.stat().st_size > 1024 * 50:
+                            s_rec = db.query(Song).filter(Song.id == s_info["id"]).first()
+                            if s_rec:
+                                s_rec.audio_path = str(cached_p)
+                                db.commit()
+                            cached_found = True
+                            break
+                    if cached_found:
                         continue
 
                     loop = asyncio.new_event_loop()

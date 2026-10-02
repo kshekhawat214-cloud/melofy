@@ -155,7 +155,163 @@ def similarity(a: str, b: str) -> float:
 # yt-dlp Config
 # --------------------------
 
-def ydl_opts(track_id):
+# --------------------------
+# Anti-Noise & Version Keywords (AI Ranking Lite)
+# --------------------------
+
+UNWANTED_VERSION_KEYWORDS = [
+    "remix", "reverb", "slowed", "slow", "speed", "sped", "sped up", "speed up",
+    "bass boosted", "bassboosted", "8d", "lofi", "lo-fi", "cover", "acoustic",
+    "mashup", "live", "concert", "karaoke", "instrumental", "status", "tiktok",
+    "reels", "ringtone", "unplugged", "parody", "reaction", "review", "dance",
+    "choreography", "teaser", "trailer", "female version", "male version",
+    "stripped", "extended", "drill", "remake", "female cover", "male cover",
+    "piano cover", "guitar cover", "shorts"
+]
+
+JIOSAAVN_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "X-Forwarded-For": "103.208.71.1",
+    "Client-IP": "103.208.71.1",
+    "X-Real-IP": "103.208.71.1",
+    "Accept-Language": "en-IN,en;q=0.9,hi;q=0.8",
+}
+
+
+def clean_song_title(title: str) -> str:
+    """Removes movie/OST suffixes, remastered tags, and bracket noise while preserving core title."""
+    clean = re.sub(r" - From \".*?\"", "", title, flags=re.IGNORECASE)
+    clean = re.sub(r" \(From \".*?\"\)", "", clean, flags=re.IGNORECASE)
+    clean = re.sub(r" - [0-9]{4} Remaster.*", "", clean, flags=re.IGNORECASE)
+    clean = re.sub(r" \([0-9]{4} Remaster.*?\)", "", clean, flags=re.IGNORECASE)
+    clean = re.sub(r" - [0-9]{4} Mix.*", "", clean, flags=re.IGNORECASE)
+    clean = re.sub(r" - Remastered.*", "", clean, flags=re.IGNORECASE)
+    clean = re.sub(r" \(Remastered.*?\)", "", clean, flags=re.IGNORECASE)
+    clean = re.sub(r" - Single Version", "", clean, flags=re.IGNORECASE)
+    clean = re.sub(r" - Original Motion Picture Soundtrack", "", clean, flags=re.IGNORECASE)
+    clean = re.sub(r" \(Original Motion Picture Soundtrack\)", "", clean, flags=re.IGNORECASE)
+    clean = re.sub(r" - Original Soundtrack", "", clean, flags=re.IGNORECASE)
+    clean = re.sub(r" \(Original Soundtrack\)", "", clean, flags=re.IGNORECASE)
+    return clean.strip()
+
+
+def resolve_jiosaavn_candidate(clean_expected: str, lead_artist: str, expected_title: str, expected_duration: float) -> Optional[Dict[str, Any]]:
+    """
+    Queries JioSaavn with Indian localized headers and strictly filters for the original version.
+    Disqualifies any covers, slowed+reverb, remixes, or artist mismatches.
+    """
+    try:
+        saavn_q = f"{clean_expected} {lead_artist}".strip()
+        saavn_api = f"https://www.jiosaavn.com/api.php?__call=autocomplete.get&query={requests.utils.quote(saavn_q)}&_format=json&_marker=0&ctx=web6dot0"
+        s_res = requests.get(saavn_api, headers=JIOSAAVN_HEADERS, timeout=4)
+        if s_res.status_code != 200:
+            return None
+        
+        s_data = s_res.json()
+        s_songs = s_data.get("songs", {}).get("data", [])
+        if not s_songs:
+            return None
+            
+        c_lower = clean_expected.lower()
+        lead_lower = lead_artist.lower()
+        
+        for candidate in s_songs:
+            cand_title = candidate.get("title", "")
+            cand_url = candidate.get("url", "")
+            cand_artists = candidate.get("more_info", {}).get("primary_artists", "") or candidate.get("description", "")
+            
+            if not cand_url or "jiosaavn.com" not in cand_url:
+                continue
+                
+            t_lower = cand_title.lower()
+            a_lower = cand_artists.lower()
+            
+            # 1. Strict Anti-Noise: Disqualify unwanted keywords unless present in expected_title
+            has_unwanted = False
+            for kw in UNWANTED_VERSION_KEYWORDS:
+                if kw in t_lower and kw not in expected_title.lower():
+                    has_unwanted = True
+                    break
+            if has_unwanted:
+                logger.info(f"JioSaavn candidate disqualified (unwanted version): '{cand_title}'")
+                continue
+                
+            # 2. Artist Verification: Lead artist must appear in candidate artists
+            if lead_lower and (lead_lower not in a_lower and similarity(lead_lower, a_lower) < 0.35):
+                logger.info(f"JioSaavn candidate disqualified (artist mismatch): '{cand_title}' by '{cand_artists}' != '{lead_artist}'")
+                continue
+                
+            # 3. Title Verification: Clean title similarity or containment
+            if c_lower not in t_lower and similarity(c_lower, t_lower) < 0.45:
+                logger.info(f"JioSaavn candidate disqualified (title mismatch): '{cand_title}' != '{clean_expected}'")
+                continue
+                
+            # Valid original candidate found!
+            logger.info(f"JioSaavn validated original candidate: '{cand_title}' by '{cand_artists}' -> {cand_url}")
+            return candidate
+            
+    except Exception as e:
+        logger.info(f"JioSaavn resolution error: {e}")
+    return None
+
+
+async def resolve_direct_stream(expected_meta: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """
+    Sub-second cold-start resolver.
+    Attempts to locate a direct 320kbps CDN stream URL (JioSaavn Akamai/Cloudflare CDN)
+    with strict original version matching. Returns stream URL without blocking on disk download or FFmpeg.
+    """
+    expected_title = expected_meta.get("title", "")
+    expected_artist = expected_meta.get("artist", "")
+    expected_duration = float(expected_meta.get("duration") or 0)
+    
+    clean_expected = clean_song_title(expected_title)
+    lead_artist = expected_artist.split(",")[0].strip() if expected_artist else ""
+    
+    loop = asyncio.get_event_loop()
+    
+    # 1. Check JioSaavn CDN
+    candidate = await loop.run_in_executor(None, lambda: resolve_jiosaavn_candidate(clean_expected, lead_artist, expected_title, expected_duration))
+    if candidate:
+        cand_url = candidate.get("url")
+        try:
+            ydl_opts_meta = {
+                "quiet": True,
+                "nocheckcertificate": True,
+                "socket_timeout": 5,
+            }
+            with yt_dlp.YoutubeDL(ydl_opts_meta) as ydl:
+                info = await loop.run_in_executor(None, lambda: ydl.extract_info(cand_url, download=False))
+                if info and info.get("url"):
+                    cdn_url = info.get("url")
+                    cand_dur = float(info.get("duration") or 0)
+                    
+                    # Duration check: reject if difference > 35% and > 25 seconds
+                    if expected_duration > 30 and cand_dur > 10:
+                        diff = abs(expected_duration - cand_dur)
+                        if diff > 25 and (diff / expected_duration) > 0.35:
+                            logger.warning(f"JioSaavn stream duration mismatch: {cand_dur}s vs expected {expected_duration}s - skipping")
+                            return None
+                    
+                    return {
+                        "direct_url": cdn_url,
+                        "duration": cand_dur or expected_duration,
+                        "source_url": cand_url,
+                        "title": candidate.get("title") or expected_title,
+                        "artist": candidate.get("more_info", {}).get("primary_artists") or expected_artist,
+                        "thumbnail_url": expected_meta.get("thumbnail_url") or candidate.get("image"),
+                        "is_cdn": True,
+                    }
+        except Exception as err:
+            logger.info(f"Failed to extract direct CDN stream from {cand_url}: {err}")
+
+    return None
+
+# --------------------------
+# yt-dlp Config
+# --------------------------
+
+def ydl_opts(track_id, prefer_fast=True):
     ffmpeg_path = _get_ffmpeg_path()
     node_path = _get_node_path()
     
@@ -169,7 +325,7 @@ def ydl_opts(track_id):
         logger.warning("No JS runtime found. Some restricted tracks may fail.")
 
     opts = {
-        "format": "bestaudio/best",
+        "format": "bestaudio[ext=m4a]/bestaudio[ext=mp3]/bestaudio/best",
         "outtmpl": str(AUDIO_DIR / f"{track_id}.%(ext)s"),
         "quiet": True,
         "noplaylist": True,
@@ -191,7 +347,8 @@ def ydl_opts(track_id):
     if node_path:
         opts["javascript_runtime"] = node_path
 
-    if ffmpeg_path:
+    # Only force full MP3 re-encoding if specifically requested (avoids 30s CPU bottleneck on Render)
+    if not prefer_fast and ffmpeg_path:
         opts["postprocessors"] = [{
             "key": "FFmpegExtractAudio",
             "preferredcodec": "mp3",
@@ -201,39 +358,40 @@ def ydl_opts(track_id):
     return opts
 
 # --------------------------
-# Smart Download (AI ranking)
+# Smart Download (Original-First Ranking)
 # --------------------------
 
 async def smart_download(query: str, expected_meta: Dict[str, Any]):
     track_id = expected_meta.get("id") or str(uuid.uuid4())
     expected_title = expected_meta.get("title", "")
     expected_artist = expected_meta.get("artist", "")
-    expected_duration = expected_meta.get("duration", 0)
+    expected_duration = float(expected_meta.get("duration") or 0)
 
-    clean_expected = re.sub(r" - From \".*?\"", "", expected_title, flags=re.IGNORECASE)
-    clean_expected = re.sub(r" \(From \".*?\"\)", "", clean_expected, flags=re.IGNORECASE)
-    clean_expected = re.sub(r" - [0-9]{4} Remaster.*", "", clean_expected, flags=re.IGNORECASE).strip()
+    clean_expected = clean_song_title(expected_title)
     lead_artist = expected_artist.split(",")[0].strip() if expected_artist else ""
 
-    search_queries = [
-        f"{clean_expected} {lead_artist} audio",
-        f"{clean_expected} {lead_artist}",
-        f"{clean_expected} {expected_artist}",
-    ]
-    
-    # Check cache first
+    # Check cache first (with duration sanity check)
     for ext in ["mp3", "m4a", "webm", "opus", "aac", "wav"]:
         potential_path = AUDIO_DIR / f"{track_id}.{ext}"
-        if potential_path.exists():
-            if potential_path.stat().st_size > 1024 * 100:  # 100KB
-                logger.info(f"Using cached file: {track_id}.{ext}")
-                return {**expected_meta, "audio_path": str(potential_path)}
-            else:
-                logger.info(f"Existing file {track_id}.{ext} is too small, retrying.")
+        if potential_path.exists() and potential_path.stat().st_size > 1024 * 100:
+            # Check duration mismatch if expected duration is known
+            try:
+                from mutagen import File as MutagenFile
+                f_audio = MutagenFile(str(potential_path))
+                if f_audio and f_audio.info and f_audio.info.length:
+                    act_dur = f_audio.info.length
+                    if expected_duration > 30 and abs(act_dur - expected_duration) > 25 and (abs(act_dur - expected_duration) / expected_duration) > 0.30:
+                        logger.warning(f"Cached file {potential_path.name} is wrong version ({act_dur:.1f}s vs {expected_duration:.1f}s). Purging.")
+                        potential_path.unlink(missing_ok=True)
+                        continue
+            except Exception:
+                pass
+            logger.info(f"Using cached file: {track_id}.{ext}")
+            return {**expected_meta, "audio_path": str(potential_path)}
 
     loop = asyncio.get_event_loop()
 
-    # If direct source URL is provided, attempt download directly first (except Spotify links which need YouTube search)
+    # If direct source URL is provided (e.g. YouTube or JioSaavn link, not Spotify)
     direct_url = None
     if query and query.startswith("http"):
         direct_url = query
@@ -243,7 +401,7 @@ async def smart_download(query: str, expected_meta: Dict[str, Any]):
     if direct_url and "spotify.com" not in direct_url:
         logger.info(f"Direct source URL available: {direct_url}. Attempting immediate download.")
         try:
-            with yt_dlp.YoutubeDL(ydl_opts(track_id)) as ydl:
+            with yt_dlp.YoutubeDL(ydl_opts(track_id, prefer_fast=True)) as ydl:
                 data = await loop.run_in_executor(None, lambda: ydl.extract_info(direct_url, download=True))
                 for ext in ["mp3", "m4a", "webm", "opus", "aac", "wav"]:
                     p = AUDIO_DIR / f"{track_id}.{ext}"
@@ -260,41 +418,43 @@ async def smart_download(query: str, expected_meta: Dict[str, Any]):
         except Exception as direct_err:
             logger.warning(f"Direct URL download failed for {direct_url}: {direct_err}")
 
-    # High-speed JioSaavn resolution (instant CD quality, no datacenter bot blocks)
-    try:
-        saavn_q = f"{clean_expected} {lead_artist}".strip()
-        saavn_api = f"https://www.jiosaavn.com/api.php?__call=autocomplete.get&query={requests.utils.quote(saavn_q)}&_format=json&_marker=0&ctx=web6dot0"
-        s_res = requests.get(saavn_api, headers={"User-Agent": "Mozilla/5.0"}, timeout=4)
-        if s_res.status_code == 200:
-            s_data = s_res.json()
-            s_songs = s_data.get("songs", {}).get("data", [])
-            if s_songs:
-                candidate = s_songs[0]
-                s_url = candidate.get("url")
-                if s_url and "jiosaavn.com" in s_url:
-                    logger.info(f"Resolved via JioSaavn CDN: '{candidate.get('title')}' -> {s_url}")
-                    with yt_dlp.YoutubeDL(ydl_opts(track_id)) as ydl:
-                        data = await loop.run_in_executor(None, lambda: ydl.extract_info(s_url, download=True))
-                        for ext in ["mp3", "m4a", "webm", "opus", "aac", "wav"]:
-                            p = AUDIO_DIR / f"{track_id}.{ext}"
-                            if p.exists() and p.stat().st_size > 1024 * 50:
-                                embed_metadata(str(p), expected_meta)
-                                return {
-                                    **expected_meta,
-                                    "id": track_id,
-                                    "audio_path": str(p),
-                                    "duration": (data or {}).get("duration") or expected_duration,
-                                    "source_url": s_url,
-                                    "thumbnail_url": expected_meta.get("thumbnail_url") or candidate.get("image"),
-                                }
-    except Exception as saavn_err:
-        logger.info(f"JioSaavn resolver passed: {saavn_err}")
+    # 1. High-speed JioSaavn resolution (strict original version, studio quality)
+    candidate = await loop.run_in_executor(None, lambda: resolve_jiosaavn_candidate(clean_expected, lead_artist, expected_title, expected_duration))
+    if candidate:
+        s_url = candidate.get("url")
+        if s_url and "jiosaavn.com" in s_url:
+            logger.info(f"Downloading verified original via JioSaavn: '{candidate.get('title')}' -> {s_url}")
+            try:
+                with yt_dlp.YoutubeDL(ydl_opts(track_id, prefer_fast=True)) as ydl:
+                    data = await loop.run_in_executor(None, lambda: ydl.extract_info(s_url, download=True))
+                    for ext in ["m4a", "mp3", "webm", "opus", "aac", "wav"]:
+                        p = AUDIO_DIR / f"{track_id}.{ext}"
+                        if p.exists() and p.stat().st_size > 1024 * 50:
+                            embed_metadata(str(p), expected_meta)
+                            return {
+                                **expected_meta,
+                                "id": track_id,
+                                "audio_path": str(p),
+                                "duration": (data or {}).get("duration") or expected_duration,
+                                "source_url": s_url,
+                                "thumbnail_url": expected_meta.get("thumbnail_url") or candidate.get("image"),
+                            }
+            except Exception as saavn_err:
+                logger.info(f"JioSaavn download failed, falling back to YouTube: {saavn_err}")
+
+    # 2. Strict Official-First YouTube Search
+    search_queries = [
+        f"{clean_expected} {lead_artist} - Topic",
+        f"{clean_expected} {lead_artist} Official Audio",
+        f"{clean_expected} {lead_artist} Official",
+        f"{clean_expected} {lead_artist}",
+    ]
 
     for q in search_queries:
         try:
-            logger.info(f"Searching YouTube with: {q}")
-            with yt_dlp.YoutubeDL(ydl_opts(track_id)) as ydl:
-                info = await loop.run_in_executor(None, lambda: ydl.extract_info(f"ytsearch3:{q}", download=False))
+            logger.info(f"Searching YouTube (Official-First): {q}")
+            with yt_dlp.YoutubeDL(ydl_opts(track_id, prefer_fast=True)) as ydl:
+                info = await loop.run_in_executor(None, lambda: ydl.extract_info(f"ytsearch5:{q}", download=False))
                 
                 entries = [e for e in info.get("entries", []) if e]
                 if not entries:
@@ -306,45 +466,55 @@ async def smart_download(query: str, expected_meta: Dict[str, Any]):
                     uploader = entry.get("uploader", "")
                     yt_duration = entry.get("duration", 0)
                     t_lower = title.lower()
+                    u_lower = uploader.lower()
                     c_lower = clean_expected.lower()
 
                     score = 0.0
 
-                    # 1. Exact or partial title containment
-                    if c_lower in t_lower:
+                    # 1. Anti-Noise Disqualification: check unwanted keywords
+                    has_unwanted = False
+                    for kw in UNWANTED_VERSION_KEYWORDS:
+                        if kw in t_lower and kw not in expected_title.lower():
+                            has_unwanted = True
+                            break
+                    if has_unwanted:
+                        score -= 10.0  # Disqualify remixes, covers, slowed+reverbs, etc.
+
+                    # 2. Official Channel Boosts
+                    if u_lower.endswith("- topic"):
+                        score += 2.0  # Official YouTube Music release!
+                    elif "official audio" in t_lower:
+                        score += 1.2
+                    elif "official music video" in t_lower or "official video" in t_lower:
+                        score += 0.8
+                    elif "official" in t_lower:
                         score += 0.5
+
+                    # 3. Exact or partial title containment
+                    if c_lower in t_lower:
+                        score += 0.6
                     else:
                         score += similarity(t_lower, c_lower) * 0.4
 
-                    # 2. Artist containment
+                    # 4. Artist containment
                     if lead_artist and lead_artist.lower() in t_lower:
-                        score += 0.3
+                        score += 0.4
+                    elif lead_artist and lead_artist.lower() in u_lower:
+                        score += 0.4
                     elif expected_artist and any(part.strip().lower() in t_lower for part in expected_artist.split(",") if len(part.strip()) > 3):
-                        score += 0.25
-                    elif uploader and lead_artist and similarity(uploader.lower(), lead_artist.lower()) > 0.5:
-                        score += 0.2
+                        score += 0.3
 
-                    # 3. Duration Check
+                    # 5. Duration Check (Strict)
                     if expected_duration > 0 and yt_duration > 0:
                         diff = abs(expected_duration - yt_duration)
-                        if diff < 15:
+                        if diff < 10:
+                            score += 0.5
+                        elif diff < 25:
                             score += 0.2
-                        elif diff < 40:
-                            score += 0.1
-                        elif diff > 120:
-                            score -= 0.5  # Likely compilation or loop
-
-                    # 4. Version Consistency
-                    version_keywords = ["remix", "cover", "acoustic", "live", "instrumental"]
-                    for kw in version_keywords:
-                        in_expected = kw in expected_title.lower()
-                        in_found = kw in t_lower
-                        if in_expected != in_found:
-                            score -= 0.35
-
-                    # 5. Official / Topic Boost
-                    if "official" in t_lower or "topic" in uploader.lower():
-                        score += 0.1
+                        elif diff > 40:
+                            score -= 2.0
+                        elif diff > 90:
+                            score -= 10.0  # Disqualify compilations / truncated clips
 
                     matches.append((score, entry))
 
@@ -352,8 +522,8 @@ async def smart_download(query: str, expected_meta: Dict[str, Any]):
                 matches = sorted(matches, key=lambda x: x[0], reverse=True)
 
                 for score, entry in matches:
-                    # Allow anything with positive score, or top result if score is non-negative
-                    if score < 0.1 and entry != matches[0][1]:
+                    # STRICT: Never download disqualified or negative-score tracks
+                    if score < 0.2:
                         continue
 
                     url_to_download = entry.get("webpage_url") or f"https://www.youtube.com/watch?v={entry.get('id')}"
@@ -362,10 +532,9 @@ async def smart_download(query: str, expected_meta: Dict[str, Any]):
                         data = await loop.run_in_executor(None, lambda: ydl.extract_info(url_to_download, download=True))
                         
                         # Find the final file
-                        for ext in ["mp3", "m4a", "webm", "opus", "aac", "wav"]:
+                        for ext in ["m4a", "mp3", "webm", "opus", "aac", "wav"]:
                             p = AUDIO_DIR / f"{track_id}.{ext}"
                             if p.exists() and p.stat().st_size > 1024 * 50:
-                                # Embed metadata after download
                                 embed_metadata(str(p), expected_meta)
                                 
                                 return {
@@ -384,7 +553,7 @@ async def smart_download(query: str, expected_meta: Dict[str, Any]):
             logger.warning(f"Search failed for query '{q}': {search_err}")
             continue
 
-    logger.error(f"Completely failed to download any version of: {expected_title}")
+    logger.error(f"Completely failed to download original version of: {expected_title}")
     return None
 
 # --------------------------

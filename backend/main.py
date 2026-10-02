@@ -19,6 +19,47 @@ try:
 except Exception as e:
     logger.warning(f"Database table verification note: {e}")
 
+def verify_and_clean_audio_cache():
+    """Scans local audio files and purges any file whose duration differs from official DB duration by > 30%."""
+    try:
+        from database.models import SessionLocal, Song
+        from mutagen import File as MutagenFile
+        db = SessionLocal()
+        audio_dir = Path(__file__).parent / "local_storage" / "audio"
+        if not audio_dir.exists():
+            db.close()
+            return
+        
+        cleaned = 0
+        for f in audio_dir.iterdir():
+            if f.is_file() and f.suffix in [".mp3", ".m4a", ".webm", ".opus"]:
+                song_id = f.stem
+                song = db.query(Song).filter(Song.id == song_id).first()
+                if song and song.duration and song.duration > 30:
+                    try:
+                        mf = MutagenFile(str(f))
+                        if mf and mf.info and mf.info.length:
+                            act_dur = mf.info.length
+                            diff = abs(act_dur - song.duration)
+                            if diff > 25 and (diff / song.duration) > 0.30:
+                                logger.warning(f"Startup clean: Purging mismatched cache {f.name} ({act_dur:.1f}s vs {song.duration:.1f}s)")
+                                f.unlink(missing_ok=True)
+                                song.audio_path = None
+                                db.commit()
+                                cleaned += 1
+                    except Exception:
+                        pass
+        db.close()
+        if cleaned > 0:
+            logger.info(f"Startup audio verification: cleaned {cleaned} mismatched cache files.")
+    except Exception as e:
+        logger.info(f"Startup cache verification note: {e}")
+
+try:
+    verify_and_clean_audio_cache()
+except Exception:
+    pass
+
 app = FastAPI(
     title="AI Music Smart Engine",
     description="Backend API powering the personalized AI Music App.",

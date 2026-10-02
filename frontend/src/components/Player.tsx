@@ -73,6 +73,7 @@ export default function Player() {
   // Audio source change
   useEffect(() => {
     if (audioRef.current && currentSong) {
+      setIsBuffering(true)
       audioRef.current.load()
       if (isPlaying) {
         audioRef.current.play().catch((err) => console.log("Audio play prevented:", err))
@@ -228,6 +229,8 @@ export default function Player() {
           src={getFullAudioUrl(currentSong.streamUrl)}
           crossOrigin="anonymous"
           preload="auto"
+          onLoadStart={() => setIsBuffering(true)}
+          onLoadedData={() => setIsBuffering(false)}
           onTimeUpdate={handleTimeUpdate}
           onLoadedMetadata={handleTimeUpdate}
           onWaiting={() => setIsBuffering(true)}
