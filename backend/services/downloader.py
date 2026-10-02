@@ -43,9 +43,10 @@ def _get_ffmpeg_path():
 def _get_node_path():
     """Dynamic Node.js discovery for signature solving."""
     # 1. Check system path
-    node_path = shutil.which("node")
-    if node_path:
-        return node_path
+    for cmd in ["node", "nodejs"]:
+        node_path = shutil.which(cmd)
+        if node_path:
+            return node_path
     
     # 2. Check common Windows paths
     common_windows_paths = [
@@ -59,7 +60,7 @@ def _get_node_path():
             return p
             
     # 3. Check Mac/Linux defaults
-    common_unix_paths = ["/usr/local/bin/node", "/usr/bin/node", "/opt/homebrew/bin/node"]
+    common_unix_paths = ["/usr/local/bin/node", "/usr/bin/node", "/usr/bin/nodejs", "/usr/local/bin/nodejs", "/opt/homebrew/bin/node"]
     for p in common_unix_paths:
         if os.path.exists(p):
             return p
@@ -177,7 +178,7 @@ def ydl_opts(track_id):
         "ffmpeg_location": ffmpeg_path,
         "extractor_args": {
             "youtube": {
-                "player_client": ["android", "ios", "web"]
+                "player_client": ["tv_embedded", "mweb", "ios", "android", "web"]
             }
         },
         "http_headers": {
@@ -230,6 +231,33 @@ async def smart_download(query: str, expected_meta: Dict[str, Any]):
                 logger.info(f"Existing file {track_id}.{ext} is too small, retrying.")
 
     loop = asyncio.get_event_loop()
+
+    # If direct source URL is provided, attempt download directly first!
+    direct_url = None
+    if query and query.startswith("http"):
+        direct_url = query
+    elif expected_meta.get("source_url") and expected_meta["source_url"].startswith("http"):
+        direct_url = expected_meta["source_url"]
+
+    if direct_url:
+        logger.info(f"Direct source URL available: {direct_url}. Attempting immediate download.")
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts(track_id)) as ydl:
+                data = await loop.run_in_executor(None, lambda: ydl.extract_info(direct_url, download=True))
+                for ext in ["mp3", "m4a", "webm", "opus", "aac", "wav"]:
+                    p = AUDIO_DIR / f"{track_id}.{ext}"
+                    if p.exists() and p.stat().st_size > 1024 * 50:
+                        embed_metadata(str(p), expected_meta)
+                        return {
+                            **expected_meta,
+                            "id": track_id,
+                            "audio_path": str(p),
+                            "duration": (data or {}).get("duration") or expected_duration,
+                            "source_url": direct_url,
+                            "thumbnail_url": expected_meta.get("thumbnail_url")
+                        }
+        except Exception as direct_err:
+            logger.warning(f"Direct URL download failed for {direct_url}: {direct_err}")
 
     for q in search_queries:
         try:

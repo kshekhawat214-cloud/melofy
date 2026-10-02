@@ -3,13 +3,14 @@ Songs Router: CRUD + Stream audio + Download endpoint.
 Serves audio files as streams directly from local_storage.
 """
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from sqlalchemy.orm import Session
 from database.models import Song, get_db
 from pathlib import Path
 import os
 import mimetypes
 
+BASE_DIR = Path(__file__).parent.parent
 router = APIRouter(prefix="/api", tags=["Songs"])
 
 
@@ -40,7 +41,22 @@ async def stream_audio(song_id: str, db: Session = Depends(get_db)):
     if not song:
         raise HTTPException(status_code=404, detail="Song not found")
 
-    path = Path(song.audio_path) if song.audio_path else None
+    # 1. If audio is an external URL, redirect immediately
+    if song.audio_path and (song.audio_path.startswith("http://") or song.audio_path.startswith("https://")):
+        return RedirectResponse(url=song.audio_path)
+
+    path = None
+    if song.audio_path:
+        p = Path(song.audio_path)
+        path = p if p.is_absolute() else BASE_DIR / p
+
+    # Also check if file exists in audio storage by song ID
+    if not path or not path.exists() or path.stat().st_size < 1024 * 50:
+        alt_path = BASE_DIR / "local_storage" / "audio" / f"{song.id}.mp3"
+        if alt_path.exists() and alt_path.stat().st_size > 1024 * 50:
+            path = alt_path
+            song.audio_path = str(alt_path)
+            db.commit()
 
     # Trigger Smart On-Demand Resolver if file is missing, not on disk, or too small
     if not path or not path.exists() or path.stat().st_size < 1024 * 50:
@@ -56,7 +72,7 @@ async def stream_audio(song_id: str, db: Session = Depends(get_db)):
             "source_url": song.source_url,
         }
         try:
-            downloaded = await smart_download("", track_meta)
+            downloaded = await smart_download(song.source_url or "", track_meta)
             if downloaded and downloaded.get("audio_path") and Path(downloaded["audio_path"]).exists():
                 path = Path(downloaded["audio_path"])
                 song.audio_path = str(path)
@@ -169,12 +185,26 @@ def get_lyrics(song_id: str):
 
 def _serialize(s: Song) -> dict:
     """Standardizes song data for the frontend with Smart Resolver stream links."""
-    # Check if physical audio file exists on disk
-    is_cached = bool(s.audio_path and os.path.exists(s.audio_path) and os.path.getsize(s.audio_path) > 1024 * 50)
+    is_url = bool(s.audio_path and (s.audio_path.startswith("http://") or s.audio_path.startswith("https://")))
     
-    # If cached, use direct static path for zero-overhead streaming;
-    # if not yet cached, route through /api/songs/{id}/stream to trigger Smart On-Demand Resolver!
-    stream_url = f"/static/audio/{s.id}.mp3" if is_cached else f"/api/songs/{s.id}/stream"
+    local_p = None
+    if s.audio_path and not is_url:
+        p = Path(s.audio_path)
+        local_p = p if p.is_absolute() else BASE_DIR / p
+    
+    if not local_p or not local_p.exists():
+        alt = BASE_DIR / "local_storage" / "audio" / f"{s.id}.mp3"
+        if alt.exists():
+            local_p = alt
+
+    is_cached = is_url or bool(local_p and local_p.exists() and local_p.stat().st_size > 1024 * 50)
+    
+    if is_url:
+        stream_url = s.audio_path
+    elif is_cached:
+        stream_url = f"/static/audio/{s.id}.mp3"
+    else:
+        stream_url = f"/api/songs/{s.id}/stream"
 
     return {
         "id": s.id,

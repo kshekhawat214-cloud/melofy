@@ -8,7 +8,11 @@ venv
 .venv
 .env*
 local_storage/audio/*
+!local_storage/audio/*.mp3
 !local_storage/audio/.gitkeep
+backend/local_storage/audio/*
+!backend/local_storage/audio/*.mp3
+!backend/local_storage/audio/.gitkeep
 local_storage/covers/*
 !local_storage/covers/.gitkeep
 local_storage/*.db

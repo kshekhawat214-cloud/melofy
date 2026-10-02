@@ -5,6 +5,7 @@ __pycache__/
 !.env.example
 local_storage/*.db
 local_storage/audio/*
+!local_storage/audio/*.mp3
 !local_storage/audio/.gitkeep
 local_storage/covers/*
 !local_storage/covers/.gitkeep

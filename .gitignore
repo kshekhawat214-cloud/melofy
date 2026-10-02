@@ -18,6 +18,7 @@ secrets/
 backend/local_storage/*
 !backend/local_storage/audio/
 backend/local_storage/audio/*
+!backend/local_storage/audio/*.mp3
 !backend/local_storage/audio/.gitkeep
 !backend/local_storage/covers/
 backend/local_storage/covers/*
@@ -30,11 +31,11 @@ backend/local_storage/covers/*
 *.session
 *.log
 
-*.mp3
 *.m4a
 *.webm
 *.wav
 *.flac
+!backend/local_storage/audio/*.mp3
 
 # Python
 __pycache__/
