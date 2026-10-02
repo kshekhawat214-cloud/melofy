@@ -67,13 +67,18 @@ export default function Player() {
 
   const getFullAudioUrl = useCallback((url?: string) => {
     if (!url) return ""
-    return url.startsWith("http") ? url : `${API_BASE}${url}`
+    if (url.startsWith("http://") || url.startsWith("https://")) return url
+    const base = (API_BASE || "https://melofy-ubj8.onrender.com").replace(/\/$/, "")
+    return `${base}${url.startsWith("/") ? "" : "/"}${url}`
   }, [])
 
   // Audio source change
   useEffect(() => {
     if (audioRef.current && currentSong) {
       setIsBuffering(true)
+      if (currentSong.duration) {
+        setDuration(currentSong.duration)
+      }
       audioRef.current.load()
       if (isPlaying) {
         audioRef.current.play().catch((err) => console.log("Audio play prevented:", err))
