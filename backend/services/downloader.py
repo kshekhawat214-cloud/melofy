@@ -394,10 +394,6 @@ async def smart_download(query: str, expected_meta: Dict[str, Any]):
     for ext in ["mp3", "m4a", "mp4", "webm", "opus", "aac", "wav"]:
         potential_path = AUDIO_DIR / f"{track_id}.{ext}"
         if potential_path.exists() and potential_path.stat().st_size > 1024 * 100:
-            if track_id in {"5ThyDv6aRVU8AH4vXQNldF", "0xlWd9o8yjKpJ02WJy79kZ", "5PetOhEX9N0oyBB0Keqobv"}:
-                logger.warning(f"Purging reported track {track_id} to re-resolve authentic version.")
-                potential_path.unlink(missing_ok=True)
-                continue
             # Check duration mismatch if expected duration is known
             try:
                 from mutagen import File as MutagenFile

@@ -63,15 +63,7 @@ async def stream_audio(song_id: str, background_tasks: BackgroundTasks, db: Sess
                 db.commit()
                 break
 
-    # 2. Sanity Check: Invalidate wrong versions or explicitly reported tracks needing re-resolution
-    PURGE_IDS = {"5ThyDv6aRVU8AH4vXQNldF", "0xlWd9o8yjKpJ02WJy79kZ", "5PetOhEX9N0oyBB0Keqobv"}
-    if path and path.exists() and song.id in PURGE_IDS:
-        logger.warning(f"Purging explicitly reported song {song.id} ({song.title}) to re-resolve authentic version!")
-        path.unlink(missing_ok=True)
-        path = None
-        song.audio_path = None
-        db.commit()
-
+    # 2. Sanity Check: Invalidate wrong versions (e.g. truncated preview or cover)
     if path and path.exists() and path.stat().st_size > 1024 * 50 and song.duration and song.duration > 30:
         try:
             from mutagen import File as MutagenFile
