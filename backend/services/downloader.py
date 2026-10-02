@@ -386,7 +386,9 @@ async def smart_download(query: str, expected_meta: Dict[str, Any]):
     clean_expected = clean_song_title(expected_title)
     lead_artist = expected_artist.split(",")[0].strip() if expected_artist else ""
     album = expected_meta.get("album", "")
-    clean_album = clean_song_title(album) if album and album.lower() != expected_title.lower() else ""
+    clean_album = ""
+    if album and album.lower() not in (expected_title.lower(), "kind", "unknown album", "imported playlist", "playlist", "spotify playlist"):
+        clean_album = clean_song_title(album)
 
     # Check cache first (with duration sanity check)
     for ext in ["mp3", "m4a", "webm", "opus", "aac", "wav"]:
@@ -465,19 +467,11 @@ async def smart_download(query: str, expected_meta: Dict[str, Any]):
                 logger.info(f"JioSaavn download failed, falling back to YouTube: {saavn_err}")
 
     # 2. Strict Official-First YouTube Search
-    search_queries = []
-    if clean_album:
-        search_queries.append(f"{clean_expected} {clean_album} {lead_artist} - Topic")
-        search_queries.append(f"{clean_expected} {clean_album} {lead_artist} Official")
-        search_queries.append(f"{clean_expected} {clean_album} {lead_artist}")
-
-    search_queries.extend([
+    search_queries = [
+        f"{clean_expected} {lead_artist} Official",
         f"{clean_expected} {lead_artist} - Topic",
-        f"{clean_expected} {expected_artist} Official",
-        f"{clean_expected} {lead_artist} Official Audio",
-        f"{clean_expected} {lead_artist} Official Video",
         f"{clean_expected} {lead_artist}",
-    ])
+    ]
 
     for q in search_queries:
         try:
