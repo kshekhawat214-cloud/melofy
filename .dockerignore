@@ -1,0 +1,14 @@
+.git
+.agents
+frontend/
+node_modules
+__pycache__
+*.pyc
+venv
+.venv
+.env*
+local_storage/audio/*
+!local_storage/audio/.gitkeep
+local_storage/covers/*
+!local_storage/covers/.gitkeep
+local_storage/*.db
