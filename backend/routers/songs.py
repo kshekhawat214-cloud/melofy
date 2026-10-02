@@ -266,7 +266,19 @@ async def diagnose_song(song_id: str, db: Session = Depends(get_db)):
     if not song:
         return {"error": "Song not found in DB"}
     
-    from services.downloader import smart_download, resolve_direct_stream, AUDIO_DIR
+    from services.downloader import (
+        resolve_direct_stream,
+        clean_song_title,
+        ydl_opts,
+        similarity,
+        AUDIO_DIR,
+        OFFICIAL_LABEL_CHANNELS,
+        UNWANTED_VERSION_KEYWORDS,
+        _get_ffmpeg_path,
+        _get_node_path,
+    )
+    import yt_dlp
+    import asyncio
     import traceback
     
     track_meta = {
@@ -287,16 +299,44 @@ async def diagnose_song(song_id: str, db: Session = Depends(get_db)):
     except Exception as e:
         direct_res = f"Exception: {e}"
         
-    download_res = None
-    download_err = None
-    try:
-        download_res = await smart_download(song.source_url or "", track_meta)
-    except Exception as e:
-        download_err = f"{e}\n{traceback.format_exc()}"
+    diag_steps = []
+    clean_expected = clean_song_title(song.title)
+    lead_artist = song.artist.split(",")[0].strip() if song.artist else ""
+    queries = [
+        f"{clean_expected} {lead_artist} Official",
+        f"{clean_expected} {lead_artist} - Topic",
+        f"{clean_expected} {lead_artist}",
+    ]
+    
+    loop = asyncio.get_event_loop()
+    for q in queries:
+        try:
+            s_opts = {**ydl_opts(song.id, prefer_fast=True), "extract_flat": "in_playlist"}
+            with yt_dlp.YoutubeDL(s_opts) as ydl:
+                info = await loop.run_in_executor(None, lambda: ydl.extract_info(f"ytsearch3:{q}", download=False))
+                entries = [e for e in info.get("entries", []) if e]
+                diag_steps.append({"query": q, "entries_count": len(entries), "sample_titles": [e.get("title") for e in entries[:3]]})
+                if entries:
+                    cand = entries[0]
+                    cand_url = cand.get("webpage_url") or f"https://www.youtube.com/watch?v={cand.get('id')}"
+                    diag_steps.append({"attempting_url": cand_url, "title": cand.get("title")})
+                    try:
+                        dl_opts = ydl_opts(song.id, prefer_fast=True)
+                        with yt_dlp.YoutubeDL(dl_opts) as dl_ydl:
+                            dl_data = await loop.run_in_executor(None, lambda: dl_ydl.extract_info(cand_url, download=True))
+                            diag_steps.append({"dl_success": True, "dl_format": dl_data.get("format_id")})
+                            break
+                    except Exception as dl_err:
+                        diag_steps.append({"dl_error": str(dl_err), "trace": traceback.format_exc()})
+        except Exception as q_err:
+            diag_steps.append({"query_error": str(q_err)})
         
     files_after = [f.name for f in AUDIO_DIR.iterdir()] if AUDIO_DIR.exists() else []
     
     return {
+        "git_commit": os.getenv("RENDER_GIT_COMMIT", "local"),
+        "ffmpeg": _get_ffmpeg_path(),
+        "node": _get_node_path(),
         "song_id": song.id,
         "title": song.title,
         "artist": song.artist,
@@ -305,8 +345,7 @@ async def diagnose_song(song_id: str, db: Session = Depends(get_db)):
         "files_before": files_in_audio,
         "files_after": files_after,
         "direct_res": direct_res,
-        "download_res": download_res,
-        "download_err": download_err,
+        "diag_steps": diag_steps,
     }
 
 
