@@ -131,7 +131,7 @@ class Song(Base):
     popularity = Column(Float, default=50.0)
     play_count = Column(Integer, default=0)
     duration = Column(Float, nullable=True) # seconds
-    audio_path = Column(String, nullable=False)   # local path or URL
+    audio_path = Column(String, nullable=True, default="")   # local path or URL
     cover_path = Column(String, nullable=True)    # local path
     source_url = Column(String, nullable=True)    # original URL
     thumbnail_url = Column(String, nullable=True) # remote thumbnail
