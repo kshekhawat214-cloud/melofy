@@ -409,7 +409,7 @@ def execute_import_job(
                     p = Path(existing_song.audio_path)
                     audio_exists = p.exists() if p.is_absolute() else (AUDIO_DIR / p.name).exists()
                 if not audio_exists:
-                    for ext in ["m4a", "mp3", "webm", "opus", "aac", "wav"]:
+                    for ext in ["m4a", "mp3", "mp4", "webm", "opus", "aac", "wav"]:
                         p_id = AUDIO_DIR / f"{existing_song.id}.{ext}"
                         if p_id.exists() and p_id.stat().st_size > 1024 * 50:
                             existing_song.audio_path = str(p_id)
@@ -429,7 +429,7 @@ def execute_import_job(
             else:
                 # Check if audio file already exists locally for this ID across formats
                 audio_p = ""
-                for ext in ["m4a", "mp3", "webm", "opus", "aac", "wav"]:
+                for ext in ["m4a", "mp3", "mp4", "webm", "opus", "aac", "wav"]:
                     local_audio = AUDIO_DIR / f"{t_id}.{ext}"
                     if local_audio.exists() and local_audio.stat().st_size > 1024 * 50:
                         audio_p = str(local_audio)
@@ -532,7 +532,7 @@ def execute_import_job(
                 try:
                     # Check again if cached on disk across formats
                     cached_found = False
-                    for ext in ["m4a", "mp3", "webm", "opus", "aac", "wav"]:
+                    for ext in ["m4a", "mp3", "mp4", "webm", "opus", "aac", "wav"]:
                         cached_p = AUDIO_DIR / f"{s_info['id']}.{ext}"
                         if cached_p.exists() and cached_p.stat().st_size > 1024 * 50:
                             s_rec = db.query(Song).filter(Song.id == s_info["id"]).first()

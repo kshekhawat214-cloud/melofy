@@ -107,7 +107,7 @@ def embed_metadata(file_path: str, meta: Dict[str, Any]):
     try:
         if ext == ".mp3":
             _embed_mp3(file_path, meta, artwork_data)
-        elif ext == ".m4a":
+        elif ext in [".m4a", ".mp4"]:
             _embed_m4a(file_path, meta, artwork_data)
         logger.info(f"Successfully embedded metadata into {file_path}")
     except Exception as e:
@@ -341,7 +341,7 @@ def ydl_opts(track_id, prefer_fast=True):
         logger.warning("No JS runtime found. Some restricted tracks may fail.")
 
     opts = {
-        "format": "bestaudio[ext=m4a]/bestaudio[ext=mp3]/bestaudio/best",
+        "format": "bestaudio/best",
         "outtmpl": str(AUDIO_DIR / f"{track_id}.%(ext)s"),
         "quiet": True,
         "noplaylist": True,
@@ -351,7 +351,7 @@ def ydl_opts(track_id, prefer_fast=True):
         "ffmpeg_location": ffmpeg_path,
         "extractor_args": {
             "youtube": {
-                "player_client": ["visionos", "web"]
+                "player_client": ["android", "web", "mweb"]
             }
         },
         "http_headers": {
@@ -391,7 +391,7 @@ async def smart_download(query: str, expected_meta: Dict[str, Any]):
         clean_album = clean_song_title(album)
 
     # Check cache first (with duration sanity check)
-    for ext in ["mp3", "m4a", "webm", "opus", "aac", "wav"]:
+    for ext in ["mp3", "m4a", "mp4", "webm", "opus", "aac", "wav"]:
         potential_path = AUDIO_DIR / f"{track_id}.{ext}"
         if potential_path.exists() and potential_path.stat().st_size > 1024 * 100:
             if track_id in {"5ThyDv6aRVU8AH4vXQNldF", "0xlWd9o8yjKpJ02WJy79kZ", "5PetOhEX9N0oyBB0Keqobv"}:
@@ -427,7 +427,7 @@ async def smart_download(query: str, expected_meta: Dict[str, Any]):
         try:
             with yt_dlp.YoutubeDL(ydl_opts(track_id, prefer_fast=True)) as ydl:
                 data = await loop.run_in_executor(None, lambda: ydl.extract_info(direct_url, download=True))
-                for ext in ["mp3", "m4a", "webm", "opus", "aac", "wav"]:
+                for ext in ["mp3", "m4a", "mp4", "webm", "opus", "aac", "wav"]:
                     p = AUDIO_DIR / f"{track_id}.{ext}"
                     if p.exists() and p.stat().st_size > 1024 * 50:
                         embed_metadata(str(p), expected_meta)
@@ -451,7 +451,7 @@ async def smart_download(query: str, expected_meta: Dict[str, Any]):
             try:
                 with yt_dlp.YoutubeDL(ydl_opts(track_id, prefer_fast=True)) as ydl:
                     data = await loop.run_in_executor(None, lambda: ydl.extract_info(s_url, download=True))
-                    for ext in ["m4a", "mp3", "webm", "opus", "aac", "wav"]:
+                    for ext in ["m4a", "mp3", "mp4", "webm", "opus", "aac", "wav"]:
                         p = AUDIO_DIR / f"{track_id}.{ext}"
                         if p.exists() and p.stat().st_size > 1024 * 50:
                             embed_metadata(str(p), expected_meta)
@@ -580,7 +580,7 @@ async def smart_download(query: str, expected_meta: Dict[str, Any]):
                         data = await loop.run_in_executor(None, lambda: ydl.extract_info(url_to_download, download=True))
                         
                         # Find the final file
-                        for ext in ["m4a", "mp3", "webm", "opus", "aac", "wav"]:
+                        for ext in ["m4a", "mp3", "mp4", "webm", "opus", "aac", "wav"]:
                             p = AUDIO_DIR / f"{track_id}.{ext}"
                             if p.exists() and p.stat().st_size > 1024 * 50:
                                 embed_metadata(str(p), expected_meta)

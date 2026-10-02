@@ -55,7 +55,7 @@ async def stream_audio(song_id: str, background_tasks: BackgroundTasks, db: Sess
 
     # Also search by song ID across all supported extensions
     if not path or not path.exists() or path.stat().st_size < 1024 * 50:
-        for ext in ["m4a", "mp3", "webm", "opus", "aac", "wav"]:
+        for ext in ["m4a", "mp3", "mp4", "webm", "opus", "aac", "wav"]:
             alt_path = BASE_DIR / "local_storage" / "audio" / f"{song.id}.{ext}"
             if alt_path.exists() and alt_path.stat().st_size > 1024 * 50:
                 path = alt_path
@@ -95,7 +95,7 @@ async def stream_audio(song_id: str, background_tasks: BackgroundTasks, db: Sess
     if path and path.exists() and path.stat().st_size > 1024 * 50:
         mime_type, _ = mimetypes.guess_type(path)
         if not mime_type:
-            mime_type = "audio/mp4" if path.suffix == ".m4a" else "audio/mpeg"
+            mime_type = "audio/mp4" if path.suffix in [".m4a", ".mp4"] else "audio/mpeg"
         return FileResponse(
             path=str(path),
             media_type=mime_type,
@@ -175,7 +175,7 @@ async def stream_audio(song_id: str, background_tasks: BackgroundTasks, db: Sess
 
     mime_type, _ = mimetypes.guess_type(path)
     if not mime_type:
-        mime_type = "audio/mp4" if path.suffix == ".m4a" else "audio/mpeg"
+        mime_type = "audio/mp4" if path.suffix in [".m4a", ".mp4"] else "audio/mpeg"
 
     return FileResponse(
         path=str(path),

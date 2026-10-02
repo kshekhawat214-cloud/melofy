@@ -23,6 +23,7 @@ import mimetypes
 
 # Explicitly register audio MIME types for Linux/Docker environments
 mimetypes.add_type("audio/mp4", ".m4a")
+mimetypes.add_type("audio/mp4", ".mp4")
 mimetypes.add_type("audio/x-m4a", ".m4a")
 mimetypes.add_type("audio/mpeg", ".mp3")
 mimetypes.add_type("audio/webm", ".webm")
@@ -44,7 +45,7 @@ def verify_and_clean_audio_cache():
 
         cleaned = 0
         for f in audio_dir.iterdir():
-            if f.is_file() and f.suffix in [".mp3", ".m4a", ".webm", ".opus"]:
+            if f.is_file() and f.suffix in [".mp3", ".m4a", ".mp4", ".webm", ".opus"]:
                 song_id = f.stem
                 song = db.query(Song).filter(Song.id == song_id).first()
                 if song_id in PURGE_IDS:
