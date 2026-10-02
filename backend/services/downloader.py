@@ -476,7 +476,11 @@ async def smart_download(query: str, expected_meta: Dict[str, Any]):
     for q in search_queries:
         try:
             logger.info(f"Searching YouTube (Official-First): {q}")
-            with yt_dlp.YoutubeDL(ydl_opts(track_id, prefer_fast=True)) as ydl:
+            search_opts = {
+                **ydl_opts(track_id, prefer_fast=True),
+                "extract_flat": "in_playlist",
+            }
+            with yt_dlp.YoutubeDL(search_opts) as ydl:
                 info = await loop.run_in_executor(None, lambda: ydl.extract_info(f"ytsearch5:{q}", download=False))
                 
                 entries = [e for e in info.get("entries", []) if e]
@@ -577,7 +581,8 @@ async def smart_download(query: str, expected_meta: Dict[str, Any]):
                     url_to_download = entry.get("webpage_url") or f"https://www.youtube.com/watch?v={entry.get('id')}"
                     logger.info(f"Attempting download (Score: {score:.2f}, Dur: {entry.get('duration')}s): {entry.get('title')}")
                     try:
-                        data = await loop.run_in_executor(None, lambda: ydl.extract_info(url_to_download, download=True))
+                        with yt_dlp.YoutubeDL(ydl_opts(track_id, prefer_fast=True)) as download_ydl:
+                            data = await loop.run_in_executor(None, lambda: download_ydl.extract_info(url_to_download, download=True))
                         
                         # Find the final file
                         for ext in ["m4a", "mp3", "mp4", "webm", "opus", "aac", "wav"]:
