@@ -260,6 +260,36 @@ async def smart_download(query: str, expected_meta: Dict[str, Any]):
         except Exception as direct_err:
             logger.warning(f"Direct URL download failed for {direct_url}: {direct_err}")
 
+    # High-speed JioSaavn resolution (instant CD quality, no datacenter bot blocks)
+    try:
+        saavn_q = f"{clean_expected} {lead_artist}".strip()
+        saavn_api = f"https://www.jiosaavn.com/api.php?__call=autocomplete.get&query={requests.utils.quote(saavn_q)}&_format=json&_marker=0&ctx=web6dot0"
+        s_res = requests.get(saavn_api, headers={"User-Agent": "Mozilla/5.0"}, timeout=4)
+        if s_res.status_code == 200:
+            s_data = s_res.json()
+            s_songs = s_data.get("songs", {}).get("data", [])
+            if s_songs:
+                candidate = s_songs[0]
+                s_url = candidate.get("url")
+                if s_url and "jiosaavn.com" in s_url:
+                    logger.info(f"Resolved via JioSaavn CDN: '{candidate.get('title')}' -> {s_url}")
+                    with yt_dlp.YoutubeDL(ydl_opts(track_id)) as ydl:
+                        data = await loop.run_in_executor(None, lambda: ydl.extract_info(s_url, download=True))
+                        for ext in ["mp3", "m4a", "webm", "opus", "aac", "wav"]:
+                            p = AUDIO_DIR / f"{track_id}.{ext}"
+                            if p.exists() and p.stat().st_size > 1024 * 50:
+                                embed_metadata(str(p), expected_meta)
+                                return {
+                                    **expected_meta,
+                                    "id": track_id,
+                                    "audio_path": str(p),
+                                    "duration": (data or {}).get("duration") or expected_duration,
+                                    "source_url": s_url,
+                                    "thumbnail_url": expected_meta.get("thumbnail_url") or candidate.get("image"),
+                                }
+    except Exception as saavn_err:
+        logger.info(f"JioSaavn resolver passed: {saavn_err}")
+
     for q in search_queries:
         try:
             logger.info(f"Searching YouTube with: {q}")
