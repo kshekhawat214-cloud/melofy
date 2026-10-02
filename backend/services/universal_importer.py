@@ -17,10 +17,11 @@ import logging
 import asyncio
 import requests
 from typing import List, Dict, Any, Tuple, Optional
+from pathlib import Path
 from sqlalchemy.orm import Session
 
-from database.models import Song, Playlist, PlaylistTrack, LikedSong, get_db
-from services.downloader import smart_download, _get_spotify_embed_entity, _scrape_spotify_track, _scrape_spotify_playlist, ydl_opts
+from database.models import Song, Playlist, PlaylistTrack, LikedSong, get_db, SessionLocal
+from services.downloader import smart_download, _get_spotify_embed_entity, _scrape_spotify_track, _scrape_spotify_playlist, ydl_opts, AUDIO_DIR
 from services.job_store import update_job
 import yt_dlp
 
@@ -309,24 +310,30 @@ def execute_import_job(
     platform: str,
     destination: str,
     custom_playlist_name: Optional[str],
-    db: Session,
+    db: Optional[Session] = None,
 ):
     """
     Asynchronous worker task:
     1. Parses track list from the source.
-    2. Creates the target Tunely Playlist (or targets Liked Songs).
-    3. Iterates and downloads/links each track with live status updates.
+    2. Creates the target Playlist (or Liked Songs).
+    3. Guarantees 100% track retention: immediately creates and links ALL songs in the database.
+    4. Triggers non-blocking background audio pre-caching.
     """
-    update_job(
-        job_id,
-        status="parsing",
-        message="Resolving playlist and track metadata...",
-        total_tracks=0,
-        processed_tracks=0,
-        current_track="",
-    )
+    should_close_db = False
+    if db is None:
+        db = SessionLocal()
+        should_close_db = True
 
     try:
+        update_job(
+            job_id,
+            status="parsing",
+            message="Resolving playlist and track metadata...",
+            total_tracks=0,
+            processed_tracks=0,
+            current_track="",
+        )
+
         title, cover_url, tracks = parse_universal_source(raw_input, platform)
         if not tracks:
             update_job(
@@ -367,113 +374,140 @@ def execute_import_job(
         )
 
         saved_tracks = []
+        songs_needing_cache = []
         position = 0
 
+        # PASS 1: Guarantees 100% of tracks are in the database and linked to the playlist
         for i, track_meta in enumerate(tracks):
-            t_title = track_meta.get("title", f"Track {i+1}")
-            t_artist = track_meta.get("artist", "Unknown Artist")
-
-            update_job(
-                job_id,
-                processed_tracks=i,
-                current_track=f"{t_title} - {t_artist}",
-                message=f"Importing {i+1} of {total}: {t_title}",
-            )
+            t_title = (track_meta.get("title") or f"Track {i+1}").strip()
+            t_artist = (track_meta.get("artist") or "Unknown Artist").strip()
+            t_album = (track_meta.get("album") or final_playlist_name).strip()
+            t_thumb = track_meta.get("thumbnail_url") or cover_url
+            t_duration = float(track_meta.get("duration") or 0)
+            t_id = track_meta.get("id") or str(uuid.uuid4())
+            t_source_url = track_meta.get("source_url") or (f"https://open.spotify.com/track/{t_id}" if len(t_id) == 22 else None)
 
             # Check if track already exists in DB
             existing_song = None
-            if track_meta.get("id"):
-                existing_song = db.query(Song).filter(Song.id == track_meta["id"]).first()
-            if not existing_song and track_meta.get("source_url"):
-                existing_song = db.query(Song).filter(Song.source_url == track_meta["source_url"]).first()
+            if t_id:
+                existing_song = db.query(Song).filter(Song.id == t_id).first()
+            if not existing_song and t_source_url:
+                existing_song = db.query(Song).filter(Song.source_url == t_source_url).first()
             if not existing_song:
-                # Fuzzy match by title + artist in DB to save downloads
+                # Fuzzy match by title + artist in DB to reuse existing songs
                 existing_song = db.query(Song).filter(
                     Song.title.ilike(f"%{t_title[:20]}%"),
                     Song.artist.ilike(f"%{t_artist[:15]}%")
                 ).first()
 
-            song_id = None
             if existing_song:
-                logger.info(f"Reusing existing song in DB: {existing_song.title}")
                 song_id = existing_song.id
-                saved_tracks.append({"id": existing_song.id, "title": existing_song.title, "artist": existing_song.artist})
+                song_obj = existing_song
+                # Check if audio exists on disk
+                audio_exists = False
+                if existing_song.audio_path:
+                    p = Path(existing_song.audio_path)
+                    audio_exists = p.exists() if p.is_absolute() else (AUDIO_DIR / p.name).exists()
+                if not audio_exists:
+                    p_id = AUDIO_DIR / f"{existing_song.id}.mp3"
+                    if p_id.exists():
+                        existing_song.audio_path = str(p_id)
+                        db.commit()
+                        audio_exists = True
+                if not audio_exists:
+                    songs_needing_cache.append({
+                        "id": existing_song.id,
+                        "title": existing_song.title,
+                        "artist": existing_song.artist,
+                        "album": existing_song.album,
+                        "duration": existing_song.duration,
+                        "thumbnail_url": existing_song.thumbnail_url,
+                        "source_url": existing_song.source_url,
+                    })
             else:
-                # Need to download via smart_download
-                try:
-                    logger.info(f"Downloading track {i+1}/{total}: {t_title} by {t_artist}")
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    downloaded = loop.run_until_complete(smart_download("", track_meta))
-                    loop.close()
+                # Check if audio file already exists locally for this ID
+                local_audio = AUDIO_DIR / f"{t_id}.mp3"
+                audio_p = str(local_audio) if (local_audio.exists() and local_audio.stat().st_size > 1024 * 50) else ""
 
-                    if downloaded and downloaded.get("audio_path"):
-                        # Deduplication check: verify this ID or audio file is not already in the database
-                        existing_after_download = db.query(Song).filter(
-                            (Song.id == downloaded["id"]) | 
-                            (Song.audio_path == downloaded["audio_path"])
-                        ).first()
+                new_song = Song(
+                    id=t_id,
+                    title=t_title,
+                    artist=t_artist,
+                    album=t_album,
+                    genre=track_meta.get("genre") or "Pop",
+                    mood="energetic",
+                    duration=t_duration,
+                    audio_path=audio_p,
+                    cover_path=t_thumb,
+                    source_url=t_source_url,
+                    thumbnail_url=t_thumb,
+                    popularity=float(track_meta.get("popularity") or 60.0),
+                    energy=0.7,
+                )
+                db.add(new_song)
+                db.commit()
+                db.refresh(new_song)
+                song_id = new_song.id
+                song_obj = new_song
 
-                        if existing_after_download:
-                            logger.info(f"Reusing existing song in DB: {existing_after_download.title} ({existing_after_download.id})")
-                            song_id = existing_after_download.id
-                            saved_tracks.append({"id": existing_after_download.id, "title": existing_after_download.title, "artist": existing_after_download.artist})
-                        else:
-                            new_song = Song(
-                                id=downloaded["id"],
-                                title=downloaded["title"],
-                                artist=downloaded["artist"],
-                                album=downloaded.get("album") or final_playlist_name,
-                                genre=downloaded.get("genre") or "",
-                                mood=downloaded.get("mood") or "neutral",
-                                duration=downloaded.get("duration") or 0,
-                                audio_path=downloaded["audio_path"],
-                                cover_path=downloaded.get("cover_path") or downloaded.get("thumbnail_url"),
-                                source_url=downloaded.get("source_url"),
-                                thumbnail_url=downloaded.get("thumbnail_url"),
-                                popularity=downloaded.get("popularity") or 50.0,
-                                energy=0.7,
-                            )
-                            db.add(new_song)
-                            db.commit()
-                            song_id = new_song.id
-                            saved_tracks.append({"id": new_song.id, "title": new_song.title, "artist": new_song.artist})
-                except Exception as down_err:
-                    logger.warning(f"Failed to download track {t_title}: {down_err}")
-                    continue
+                if not audio_p:
+                    songs_needing_cache.append({
+                        "id": t_id,
+                        "title": t_title,
+                        "artist": t_artist,
+                        "album": t_album,
+                        "duration": t_duration,
+                        "thumbnail_url": t_thumb,
+                        "source_url": t_source_url,
+                    })
 
-            # Link to destination
-            if song_id:
-                if destination == "playlist" and target_playlist:
-                    # Check if already in playlist
-                    in_pl = db.query(PlaylistTrack).filter(
-                        PlaylistTrack.playlist_id == target_playlist.id,
-                        PlaylistTrack.song_id == song_id
-                    ).first()
-                    if not in_pl:
-                        pt = PlaylistTrack(
-                            playlist_id=target_playlist.id,
-                            song_id=song_id,
-                            position=position,
-                        )
-                        db.add(pt)
-                        position += 1
-                        db.commit()
+            # Link to destination (playlist or liked)
+            if destination == "playlist" and target_playlist:
+                in_pl = db.query(PlaylistTrack).filter(
+                    PlaylistTrack.playlist_id == target_playlist.id,
+                    PlaylistTrack.song_id == song_id
+                ).first()
+                if not in_pl:
+                    pt = PlaylistTrack(
+                        playlist_id=target_playlist.id,
+                        song_id=song_id,
+                        position=position,
+                    )
+                    db.add(pt)
+                    position += 1
+                    db.commit()
 
-                elif destination == "liked":
-                    in_liked = db.query(LikedSong).filter(
-                        LikedSong.user_id == "1",
-                        LikedSong.song_id == song_id
-                    ).first()
-                    if not in_liked:
-                        db.add(LikedSong(user_id="1", song_id=song_id))
-                        db.commit()
+            elif destination == "liked":
+                in_liked = db.query(LikedSong).filter(
+                    LikedSong.user_id == "1",
+                    LikedSong.song_id == song_id
+                ).first()
+                if not in_liked:
+                    db.add(LikedSong(user_id="1", song_id=song_id))
+                    db.commit()
 
-        # Final success update
+            saved_tracks.append({
+                "id": song_id,
+                "title": song_obj.title,
+                "artist": song_obj.artist,
+                "album": song_obj.album,
+                "duration": song_obj.duration,
+                "thumbnail_url": song_obj.thumbnail_url,
+            })
+
+            update_job(
+                job_id,
+                processed_tracks=i + 1,
+                current_track=f"{t_title} - {t_artist}",
+                message=f"Added {i + 1} of {total}: {t_title}",
+                tracks=saved_tracks,
+            )
+
+        # Mark transfer complete immediately with all tracks preserved!
         update_job(
             job_id,
             status="done",
-            message=f"Successfully imported {len(saved_tracks)} tracks into '{final_playlist_name}'!",
+            message=f"Successfully imported all {len(saved_tracks)} tracks into '{final_playlist_name}'!",
             count=len(saved_tracks),
             total_tracks=total,
             processed_tracks=total,
@@ -483,7 +517,38 @@ def execute_import_job(
             tracks=saved_tracks,
             error=None,
         )
-        logger.info(f"Import job {job_id} complete: {len(saved_tracks)}/{total} tracks imported.")
+        logger.info(f"Import job {job_id} complete: all {len(saved_tracks)}/{total} tracks saved and linked.")
+
+        # PASS 2: Background Audio Pre-caching (Best effort, does not drop any tracks)
+        if songs_needing_cache:
+            logger.info(f"Starting background audio pre-caching for {len(songs_needing_cache)} tracks...")
+            for s_info in songs_needing_cache:
+                try:
+                    # Check again if cached on disk
+                    cached_p = AUDIO_DIR / f"{s_info['id']}.mp3"
+                    if cached_p.exists() and cached_p.stat().st_size > 1024 * 50:
+                        s_rec = db.query(Song).filter(Song.id == s_info["id"]).first()
+                        if s_rec:
+                            s_rec.audio_path = str(cached_p)
+                            db.commit()
+                        continue
+
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    downloaded = loop.run_until_complete(smart_download("", s_info))
+                    loop.close()
+
+                    if downloaded and downloaded.get("audio_path"):
+                        s_rec = db.query(Song).filter(Song.id == s_info["id"]).first()
+                        if s_rec:
+                            s_rec.audio_path = downloaded["audio_path"]
+                            if downloaded.get("duration") and not s_rec.duration:
+                                s_rec.duration = downloaded["duration"]
+                            db.commit()
+                            logger.info(f"Pre-cached audio for: {s_info.get('title')}")
+                except Exception as cache_err:
+                    logger.warning(f"Background pre-cache skipped for {s_info.get('title')}: {cache_err}")
+                    continue
 
     except Exception as e:
         logger.error(f"Import job {job_id} failed with error: {e}", exc_info=True)
@@ -497,3 +562,10 @@ def execute_import_job(
             error=str(e),
             message="Import failed. Please check the provided link or tracklist.",
         )
+    finally:
+        if should_close_db and db:
+            try:
+                db.close()
+            except Exception:
+                pass
+

@@ -55,7 +55,7 @@ async def stream_audio(song_id: str, db: Session = Depends(get_db)):
         alt_path = BASE_DIR / "local_storage" / "audio" / f"{song.id}.mp3"
         if alt_path.exists() and alt_path.stat().st_size > 1024 * 50:
             path = alt_path
-            song.audio_path = str(alt_path)
+            song.audio_path = f"local_storage/audio/{song.id}.mp3"
             db.commit()
 
     # Trigger Smart On-Demand Resolver if file is missing, not on disk, or too small
@@ -75,7 +75,7 @@ async def stream_audio(song_id: str, db: Session = Depends(get_db)):
             downloaded = await smart_download(song.source_url or "", track_meta)
             if downloaded and downloaded.get("audio_path") and Path(downloaded["audio_path"]).exists():
                 path = Path(downloaded["audio_path"])
-                song.audio_path = str(path)
+                song.audio_path = f"local_storage/audio/{song.id}.mp3"
                 if downloaded.get("duration") and not song.duration:
                     song.duration = downloaded["duration"]
                 db.commit()
@@ -124,7 +124,7 @@ async def download_song(song_id: str, db: Session = Depends(get_db)):
         downloaded = await smart_download("", track_meta)
         if downloaded and downloaded.get("audio_path") and Path(downloaded["audio_path"]).exists():
             path = Path(downloaded["audio_path"])
-            song.audio_path = str(path)
+            song.audio_path = f"local_storage/audio/{song.id}.mp3"
             db.commit()
             db.refresh(song)
         else:

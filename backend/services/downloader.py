@@ -175,10 +175,11 @@ def ydl_opts(track_id):
         "noplaylist": True,
         "nocheckcertificate": True,
         "ignoreerrors": True,
+        "socket_timeout": 15,
         "ffmpeg_location": ffmpeg_path,
         "extractor_args": {
             "youtube": {
-                "player_client": ["tv_embedded", "mweb", "ios", "android", "web"]
+                "player_client": ["visionos", "web"]
             }
         },
         "http_headers": {
@@ -215,7 +216,7 @@ async def smart_download(query: str, expected_meta: Dict[str, Any]):
     lead_artist = expected_artist.split(",")[0].strip() if expected_artist else ""
 
     search_queries = [
-        f"{clean_expected} {lead_artist} official audio",
+        f"{clean_expected} {lead_artist} audio",
         f"{clean_expected} {lead_artist}",
         f"{clean_expected} {expected_artist}",
     ]
@@ -232,14 +233,14 @@ async def smart_download(query: str, expected_meta: Dict[str, Any]):
 
     loop = asyncio.get_event_loop()
 
-    # If direct source URL is provided, attempt download directly first!
+    # If direct source URL is provided, attempt download directly first (except Spotify links which need YouTube search)
     direct_url = None
     if query and query.startswith("http"):
         direct_url = query
     elif expected_meta.get("source_url") and expected_meta["source_url"].startswith("http"):
         direct_url = expected_meta["source_url"]
 
-    if direct_url:
+    if direct_url and "spotify.com" not in direct_url:
         logger.info(f"Direct source URL available: {direct_url}. Attempting immediate download.")
         try:
             with yt_dlp.YoutubeDL(ydl_opts(track_id)) as ydl:
@@ -263,7 +264,7 @@ async def smart_download(query: str, expected_meta: Dict[str, Any]):
         try:
             logger.info(f"Searching YouTube with: {q}")
             with yt_dlp.YoutubeDL(ydl_opts(track_id)) as ydl:
-                info = await loop.run_in_executor(None, lambda: ydl.extract_info(f"ytsearch5:{q}", download=False))
+                info = await loop.run_in_executor(None, lambda: ydl.extract_info(f"ytsearch3:{q}", download=False))
                 
                 entries = [e for e in info.get("entries", []) if e]
                 if not entries:
@@ -385,12 +386,14 @@ def _scrape_spotify_track(track_id: str) -> Optional[Dict[str, Any]]:
     """Scrape Spotify track metadata using embed page, with oEmbed fallback."""
     entity = _get_spotify_embed_entity("track", track_id)
     if entity:
-        title = entity.get("title") or entity.get("name") or f"Spotify Track {track_id}"
+        raw_title = entity.get("title") or entity.get("name") or f"Spotify Track {track_id}"
+        title = raw_title.replace("\xa0", " ").strip()
         artist_items = entity.get("artists", [])
         if artist_items:
             artist = ", ".join([a.get("name", "") for a in artist_items if a.get("name")])
         else:
             artist = entity.get("subtitle") or "Unknown Artist"
+        artist = artist.replace("\xa0", " ").strip()
 
         duration = (entity.get("duration") or 0) / 1000.0
         images = entity.get("visualIdentity", {}).get("image", [])
@@ -452,10 +455,12 @@ def _scrape_spotify_playlist(playlist_id: str) -> List[Dict[str, Any]]:
     for t in track_list:
         uri = t.get("uri", "")
         tid = uri.split(":track:")[-1] if ":track:" in uri else str(uuid.uuid4())
+        raw_title = t.get("title") or t.get("name") or "Unknown Title"
+        raw_artist = t.get("subtitle") or "Unknown Artist"
         tracks.append({
             "id": tid,
-            "title": t.get("title") or t.get("name") or "Unknown Title",
-            "artist": t.get("subtitle") or "Unknown Artist",
+            "title": raw_title.replace("\xa0", " ").strip(),
+            "artist": raw_artist.replace("\xa0", " ").strip(),
             "album": pl_name,
             "thumbnail_url": default_thumb,
             "duration": (t.get("duration") or 0) / 1000.0,

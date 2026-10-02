@@ -66,7 +66,6 @@ async def ingest_link(
         request.platform or "auto",
         request.destination or "playlist",
         request.playlist_name,
-        db,
     )
 
     return IngestResponse(
