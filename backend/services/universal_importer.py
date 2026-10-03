@@ -21,7 +21,15 @@ from pathlib import Path
 from sqlalchemy.orm import Session
 
 from database.models import Song, Playlist, PlaylistTrack, LikedSong, get_db, SessionLocal
-from services.downloader import smart_download, _get_spotify_embed_entity, _scrape_spotify_track, _scrape_spotify_playlist, ydl_opts, AUDIO_DIR
+from services.downloader import (
+    smart_download,
+    _get_spotify_embed_entity,
+    _scrape_spotify_track,
+    _scrape_spotify_playlist,
+    resolve_song_cover_and_album,
+    ydl_opts,
+    AUDIO_DIR,
+)
 from services.job_store import update_job
 import yt_dlp
 
@@ -381,8 +389,30 @@ def execute_import_job(
         for i, track_meta in enumerate(tracks):
             t_title = (track_meta.get("title") or f"Track {i+1}").strip()
             t_artist = (track_meta.get("artist") or "Unknown Artist").strip()
-            t_album = (track_meta.get("album") or final_playlist_name).strip()
-            t_thumb = track_meta.get("thumbnail_url") or cover_url
+            t_album = (track_meta.get("album") or "").strip()
+            t_thumb = track_meta.get("thumbnail_url")
+
+            # Never allow playlist mosaic covers to be assigned to individual songs
+            if t_thumb and "mosaic.scdn.co" in t_thumb:
+                t_thumb = None
+
+            # Fallback to playlist cover ONLY if playlist cover is NOT a mosaic
+            if not t_thumb and cover_url and "mosaic.scdn.co" not in cover_url:
+                t_thumb = cover_url
+
+            # If cover or album is missing, or album matches playlist name, resolve genuine metadata
+            if not t_thumb or not t_album or t_album == final_playlist_name:
+                resolved_cov, resolved_alb = resolve_song_cover_and_album(
+                    track_meta.get("id"), t_title, t_artist, t_album
+                )
+                if resolved_cov and "mosaic.scdn.co" not in resolved_cov and not t_thumb:
+                    t_thumb = resolved_cov
+                if resolved_alb and (not t_album or t_album == final_playlist_name):
+                    t_album = resolved_alb
+
+            if not t_album or t_album == final_playlist_name:
+                t_album = "Single"
+
             t_duration = float(track_meta.get("duration") or 0)
             t_id = track_meta.get("id") or str(uuid.uuid4())
             t_source_url = track_meta.get("source_url") or (f"https://open.spotify.com/track/{t_id}" if len(t_id) == 22 else None)
@@ -403,6 +433,18 @@ def execute_import_job(
             if existing_song:
                 song_id = existing_song.id
                 song_obj = existing_song
+                # Auto-heal existing song if it has mosaic cover or empty/playlist-named album
+                existing_updated = False
+                if (not existing_song.thumbnail_url or "mosaic.scdn.co" in existing_song.thumbnail_url) and t_thumb:
+                    existing_song.thumbnail_url = t_thumb
+                    existing_song.cover_path = t_thumb
+                    existing_updated = True
+                if (not existing_song.album or existing_song.album == final_playlist_name) and t_album and t_album != "Single":
+                    existing_song.album = t_album
+                    existing_updated = True
+                if existing_updated:
+                    db.commit()
+
                 # Check if audio exists on disk
                 audio_exists = False
                 if existing_song.audio_path:

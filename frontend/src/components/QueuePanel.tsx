@@ -1,7 +1,7 @@
 "use client"
 import { usePlayerStore } from "@/store/playerStore"
 import { X, Play, GripVertical, Trash2 } from "lucide-react"
-import { API_BASE } from "@/lib/api"
+import { API_BASE, getSongCover } from "@/lib/api"
 
 export default function QueuePanel() {
   const { queue, currentSong, isQueueOpen, toggleQueue, setCurrentSong } = usePlayerStore()
@@ -24,7 +24,7 @@ export default function QueuePanel() {
           {currentSong && (
             <div className="flex items-center p-2 rounded-md bg-white/5 group border border-white/10">
               <img 
-                src={currentSong.thumbnailUrl || (currentSong.coverUrl ? `${API_BASE}${currentSong.coverUrl}` : `${API_BASE}/api/songs/${currentSong.id}/cover`)} 
+                src={getSongCover(currentSong, 100)} 
                 className="w-10 h-10 rounded shadow-lg mr-3 object-cover" 
                 alt={currentSong.title}
               />
@@ -55,7 +55,7 @@ export default function QueuePanel() {
                   >
                     <div className="relative w-10 h-10 mr-3 flex-shrink-0">
                       <img 
-                        src={song.thumbnailUrl || (song.coverUrl ? `${API_BASE}${song.coverUrl}` : `${API_BASE}/api/songs/${song.id}/cover`)} 
+                        src={getSongCover(song, 100)} 
                         className="w-full h-full rounded shadow object-cover" 
                         alt={song.title}
                       />

@@ -71,6 +71,18 @@ try:
 except Exception:
     pass
 
+import threading
+
+def run_cover_repair_background():
+    """Runs database cover repair in background thread on startup to ensure all songs have authentic covers."""
+    try:
+        from services.downloader import repair_all_mosaic_covers
+        repair_all_mosaic_covers()
+    except Exception as e:
+        logger.warning(f"Background cover repair note: {e}")
+
+threading.Thread(target=run_cover_repair_background, daemon=True).start()
+
 app = FastAPI(
     title="AI Music Smart Engine",
     description="Backend API powering the personalized AI Music App.",

@@ -2,7 +2,7 @@
 import { useState, useEffect } from "react"
 import Header from "@/components/Header"
 import { Search as SearchIcon, X, Play, Clock3, Heart, Music, User, Disc } from "lucide-react"
-import { searchCatalog, getGenres, SearchResult, Genre, Song, API_BASE } from "@/lib/api"
+import { searchCatalog, getGenres, SearchResult, Genre, Song, API_BASE, getSongCover } from "@/lib/api"
 import { usePlayerStore } from "@/store/playerStore"
 import { useUIStore } from "@/store/uiStore"
 import Link from "next/link"
@@ -163,7 +163,7 @@ export default function SearchPage() {
                       {results.songs.slice(0, filterType === "all" ? 5 : 20).map((song, i) => {
                         const isCurrent = currentSong?.id === song.id
                         const isLiked = likedSongIds.has(song.id)
-                        const cover = song.thumbnailUrl || (song.coverUrl ? `${API_BASE}${song.coverUrl}` : "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=100&q=80")
+                        const cover = getSongCover(song, 100)
 
                         return (
                           <div

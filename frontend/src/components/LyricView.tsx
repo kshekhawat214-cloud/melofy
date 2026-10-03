@@ -1,6 +1,6 @@
 "use client"
 import { usePlayerStore } from "@/store/playerStore"
-import { API_BASE } from "@/lib/api"
+import { API_BASE, getSongCover } from "@/lib/api"
 import { useEffect, useState, useRef } from "react"
 import { X, ChevronDown } from "lucide-react"
 
@@ -104,7 +104,7 @@ export default function LyricView() {
       <div className="flex items-center justify-between p-8 z-10">
         <div className="flex items-center space-x-6">
           <img 
-            src={currentSong?.thumbnailUrl || (currentSong?.coverUrl ? `${API_BASE}${currentSong.coverUrl}` : (currentSong?.id ? `${API_BASE}/api/songs/${currentSong.id}/cover` : "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=300&q=80"))} 
+            src={getSongCover(currentSong, 300)} 
             className="w-20 h-20 rounded-lg shadow-2xl object-cover" 
             alt="" 
           />

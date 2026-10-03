@@ -385,3 +385,20 @@ export async function recordInteraction(userId: string, songId: string, interact
     console.error("Failed to record interaction", e)
   }
 }
+
+export function getSongCover(song: Partial<Song> | null | undefined, fallbackSize: number = 300): string {
+  if (!song) {
+    return `https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=${fallbackSize}&q=80`
+  }
+  // Reject mosaic playlist thumbnails so individual tracks never display composite covers
+  if (song.thumbnailUrl && !song.thumbnailUrl.includes("mosaic.scdn.co")) {
+    return song.thumbnailUrl
+  }
+  if (song.coverUrl && !song.coverUrl.includes("mosaic.scdn.co")) {
+    return song.coverUrl.startsWith("http") ? song.coverUrl : `${API_BASE}${song.coverUrl}`
+  }
+  if (song.id) {
+    return `${API_BASE}/api/songs/${song.id}/cover`
+  }
+  return `https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=${fallbackSize}&q=80`
+}

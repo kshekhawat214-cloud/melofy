@@ -118,3 +118,53 @@ Phase 6: search.
 Phase 7: uploads/transcoding, lyrics, recommendations.
 Phase 8: responsive/mobile, accessibility, PWA, tests, performance pass.
 After each phase, list what works and what remains. Ask me before any decision that changes scope.
+RESPONSIVE + ANDROID REQUIREMENTS (add to everything above)
+
+One codebase, three targets: desktop browser, Android browser (PWA), and Android APK via Capacitor. Do not build a separate native app.
+
+BREAKPOINTS
+- Mobile < 768px: single column, bottom tab bar (Home, Search, Your Library), mini-player docked above the tab bar. No left or right sidebars.
+- Tablet 768-1023px: collapsed icon-only left sidebar, no right sidebar by default.
+- Desktop >= 1024px: full three-pane layout as specified.
+Use Tailwind responsive utilities plus a useBreakpoint() hook. Layout switches must not remount the player or interrupt playback.
+
+MOBILE UI
+- Mini-player: 56px, cover + title/artist + heart + play/pause, thin progress line along the bottom edge. Tap opens the full-screen Now Playing sheet with swipe-down to close.
+- Full-screen Now Playing: large cover (tinted background from dominant color), title/artist, scrubber with elapsed and total time, shuffle/prev/play/next/repeat, and buttons for queue, lyrics and add to playlist.
+- Library on mobile: its own page with filter chips, sort and grid/list toggle.
+- Track rows: 3-dot menu opens a bottom sheet (not a right-click menu). Long-press also opens it. Swipe a row left to add to queue.
+- Track tables show only cover, title/artist and a menu button; hide the Album, Date added and Duration columns.
+- Horizontal shelves scroll with touch and snap.
+- Touch targets at least 44x44px. No hover-dependent features: play buttons are always visible on mobile cards.
+- Pull-to-refresh on Home. Android back button/gesture must close sheets and modals first, then navigate back.
+- Safe-area insets (env(safe-area-inset-*)), viewport meta with viewport-fit=cover, use 100dvh not 100vh, theme-color meta #000000.
+- Respect prefers-reduced-motion.
+
+PWA (INSTALLABLE ON ANDROID)
+- Web app manifest: name, short_name, icons (192, 512, maskable), display: standalone, orientation: any, background and theme color #000000, start_url "/".
+- Service worker (vite-plugin-pwa): precache the app shell, runtime-cache images and API GET responses (stale-while-revalidate), never cache audio streams.
+- Media Session API: title, artist, album, artwork (multiple sizes), and handlers for play, pause, previoustrack, nexttrack, seekto, seekbackward, seekforward, so lock-screen and notification controls work.
+- Keep playback alive with the screen off: use a single persistent HTMLAudioElement, resume AudioContext on user gesture, and handle audio focus and interruptions (calls, other apps) by pausing and resuming.
+- Show a custom "Install app" prompt using the beforeinstallprompt event.
+
+CAPACITOR ANDROID APP (phase after PWA works)
+- Add Capacitor to /apps/web: @capacitor/core, @capacitor/cli, @capacitor/android. appId "com.yourname.tunely".
+- Use a native media-session/foreground-service plugin so playback continues in the background with a persistent notification and lock-screen controls. Before choosing a plugin, compare the currently maintained options and confirm that the one you choose supports the current Capacitor major version.
+- Add @capacitor/status-bar (dark style, black background), @capacitor/splash-screen, @capacitor/app (handle the hardware back button), @capacitor/network (offline banner), @capacitor/haptics (light feedback on like).
+- API base URL must come from an environment variable (VITE_API_URL). On Android it must be a public HTTPS URL, not localhost. Configure CORS on the backend to allow the Capacitor origins (https://localhost and capacitor://localhost) and the web domain.
+- Provide scripts: "build:web", "cap:sync", "cap:open:android", and README steps to build a debug APK and a signed release APK/AAB in Android Studio.
+- Use platform detection (Capacitor.isNativePlatform()) so web-only code, such as the install prompt, doesn't run in the APK.
+
+PERFORMANCE ON MID-RANGE ANDROID
+- Route-level code splitting and lazy-loaded images with fixed aspect ratios.
+- Virtualize all long lists. Serve cover art in multiple sizes via srcset (64, 128, 300, 640px).
+- Avoid heavy blur/backdrop-filter and large box-shadows on scrolling lists.
+- Target Lighthouse mobile performance >= 85, PWA installable check passing.
+
+TESTING
+- Playwright viewports for 390x844 (mobile), 820x1180 (tablet), and 1440x900 (desktop). Test that playback persists across a resize, and that the mobile tab bar and bottom-sheet menu work.
+- Manually test on a real Android device: background playback, lock-screen controls, back button, install flow.
+
+ADD TO DELIVERY PLAN
+Phase 8 becomes: responsive/mobile UI + PWA.
+Phase 9 (new): Capacitor Android wrapper, background playback plugin, APK build.

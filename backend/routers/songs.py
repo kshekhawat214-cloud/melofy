@@ -227,22 +227,43 @@ async def download_song(song_id: str, db: Session = Depends(get_db)):
 
 @router.get("/songs/{song_id}/cover")
 def get_cover(song_id: str, db: Session = Depends(get_db)):
-    """Returns the local album cover or redirects to Spotify CDN if missing."""
+    """Returns the authentic album cover or redirects to Spotify/iTunes CDN."""
     logger.info(f"Cover request for song: {song_id}")
     song = db.query(Song).filter(Song.id == song_id).first()
     if not song:
         raise HTTPException(status_code=404, detail="Song not found")
 
-    # If no local cover, redirect to Spotify's high-speed CDN (thumbnail_url)
-    if not song.cover_path or not os.path.exists(song.cover_path):
-        if song.thumbnail_url:
-            return RedirectResponse(url=song.thumbnail_url)
-        raise HTTPException(status_code=404, detail="Cover art not available")
+    # If song has a mosaic thumbnail or missing thumbnail, resolve authentic cover live!
+    if not song.thumbnail_url or "mosaic.scdn.co" in song.thumbnail_url or (song.cover_path and "mosaic.scdn.co" in song.cover_path):
+        from services.downloader import resolve_song_cover_and_album
+        real_cov, real_alb = resolve_song_cover_and_album(song.id, song.title, song.artist, song.album)
+        if real_cov and "mosaic.scdn.co" not in real_cov:
+            song.thumbnail_url = real_cov
+            song.cover_path = real_cov
+        if real_alb and (not song.album or song.album in ("kind", "Massala", "Imported Playlist", "Spotify Playlist")):
+            song.album = real_alb
+        db.commit()
 
-    path = Path(song.cover_path)
-    ext = path.suffix.lower()
-    media_map = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}
-    return FileResponse(path=str(path), media_type=media_map.get(ext, "image/jpeg"))
+    # Check local cover on disk if available (and not a mosaic path)
+    if song.cover_path and "mosaic.scdn.co" not in song.cover_path and os.path.exists(song.cover_path):
+        path = Path(song.cover_path)
+        ext = path.suffix.lower()
+        media_map = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}
+        return FileResponse(path=str(path), media_type=media_map.get(ext, "image/jpeg"))
+
+    # Redirect to CDN cover
+    if song.thumbnail_url and "mosaic.scdn.co" not in song.thumbnail_url:
+        return RedirectResponse(url=song.thumbnail_url)
+
+    raise HTTPException(status_code=404, detail="Cover art not available")
+
+
+@router.post("/songs/repair-covers")
+@router.get("/songs/repair-covers")
+def repair_covers():
+    """Scans and repairs all mosaic or missing covers in database."""
+    from services.downloader import repair_all_mosaic_covers
+    return repair_all_mosaic_covers()
 
 
 @router.get("/songs/{song_id}/lyrics")
@@ -372,6 +393,8 @@ def _serialize(s: Song) -> dict:
     else:
         stream_url = f"/api/songs/{s.id}/stream"
 
+    safe_thumb = None if (s.thumbnail_url and "mosaic.scdn.co" in s.thumbnail_url) else s.thumbnail_url
+
     return {
         "id": s.id,
         "title": s.title,
@@ -383,7 +406,7 @@ def _serialize(s: Song) -> dict:
         "duration": s.duration,
         "popularity": s.popularity,
         "sourceUrl": s.source_url,
-        "thumbnailUrl": s.thumbnail_url,
+        "thumbnailUrl": safe_thumb,
         "streamUrl": stream_url,
         "downloadUrl": f"/api/songs/{s.id}/download",
         "coverUrl": f"/api/songs/{s.id}/cover",

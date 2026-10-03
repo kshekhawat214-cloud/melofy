@@ -21,7 +21,7 @@ import {
 } from "lucide-react"
 import { usePlayerStore } from "@/store/playerStore"
 import { useUIStore } from "@/store/uiStore"
-import { API_BASE } from "@/lib/api"
+import { API_BASE, getSongCover } from "@/lib/api"
 
 export default function Player() {
   const {
@@ -120,7 +120,7 @@ export default function Player() {
         album: currentSong.album || "Tunely",
         artwork: [
           {
-            src: currentSong.thumbnailUrl || `${API_BASE}${currentSong.coverUrl}`,
+            src: getSongCover(currentSong, 512),
             sizes: "512x512",
             type: "image/jpeg",
           },
@@ -222,7 +222,7 @@ export default function Player() {
     window.addEventListener("mouseup", stopDragging)
   }
 
-  const coverUrl = currentSong?.thumbnailUrl || (currentSong?.coverUrl ? `${API_BASE}${currentSong.coverUrl}` : "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=300&q=80")
+  const coverUrl = getSongCover(currentSong, 300)
 
   return (
     <footer className="h-[88px] bg-black border-t border-[#1a1a1a] fixed bottom-0 left-0 w-full z-50 flex items-center justify-between px-4 select-none">

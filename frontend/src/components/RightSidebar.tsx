@@ -4,6 +4,7 @@ import { useUIStore } from "@/store/uiStore"
 import { X, Play, Music, UserCheck, UserPlus, Trash2, ListMusic, Info } from "lucide-react"
 import { useState } from "react"
 import Link from "next/link"
+import { getSongCover } from "@/lib/api"
 
 export default function RightSidebar() {
   const {
@@ -27,7 +28,7 @@ export default function RightSidebar() {
   if (!isRightSidebarOpen || !currentSong) return null
 
   const upcomingTracks = queue.slice(queueIndex + 1)
-  const coverSrc = currentSong.thumbnailUrl || currentSong.coverUrl || "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=500&q=80"
+  const coverSrc = getSongCover(currentSong, 500)
 
   return (
     <div className="w-[340px] bg-[#121212] rounded-lg flex-shrink-0 flex flex-col h-[calc(100vh-90px)] overflow-hidden border-l border-black/40 text-white animate-in slide-in-from-right duration-200">
@@ -138,7 +139,7 @@ export default function RightSidebar() {
                   className="flex items-center space-x-3 group cursor-pointer"
                 >
                   <img
-                    src={upcomingTracks[0].thumbnailUrl || upcomingTracks[0].coverUrl || coverSrc}
+                    src={getSongCover(upcomingTracks[0], 300)}
                     alt=""
                     className="w-12 h-12 rounded object-cover"
                   />
@@ -233,7 +234,7 @@ export default function RightSidebar() {
                         </span>
                         <Play size={12} fill="white" className="hidden group-hover:block w-4 text-white" />
                         <img
-                          src={song.thumbnailUrl || song.coverUrl || coverSrc}
+                          src={getSongCover(song, 100)}
                           alt=""
                           className="w-8 h-8 rounded object-cover"
                         />

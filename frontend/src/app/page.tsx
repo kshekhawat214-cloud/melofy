@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react"
 import Header from "@/components/Header"
 import { Play, Pause } from "lucide-react"
-import { getHomeFeed, getPlaylists, Shelf, Song, Playlist, API_BASE } from "@/lib/api"
+import { getHomeFeed, getPlaylists, Shelf, Song, Playlist, API_BASE, getSongCover } from "@/lib/api"
 import { usePlayerStore } from "@/store/playerStore"
 import { useUIStore } from "@/store/uiStore"
 import Link from "next/link"
@@ -12,7 +12,7 @@ function SongCard({ song, shelfSongs }: { song: Song; shelfSongs: Song[] }) {
   const { openContextMenu } = useUIStore()
 
   const isCurrent = currentSong?.id === song.id
-  const coverSrc = song.thumbnailUrl || (song.coverUrl ? `${API_BASE}${song.coverUrl}` : "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=300&q=80")
+  const coverSrc = getSongCover(song, 300)
 
   const handlePlayClick = (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -112,7 +112,7 @@ export default function Home() {
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
             {quickAccessSongs.map((song) => {
               const isCurrent = currentSong?.id === song.id
-              const cover = song.thumbnailUrl || (song.coverUrl ? `${API_BASE}${song.coverUrl}` : "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=100&q=80")
+              const cover = getSongCover(song, 100)
               return (
                 <div
                   key={song.id}

@@ -4,7 +4,7 @@ import Header from "@/components/Header"
 import { Play, Pause, BadgeCheck, Clock3, Heart, MoreHorizontal, UserPlus, UserCheck } from "lucide-react"
 import { usePlayerStore } from "@/store/playerStore"
 import { useUIStore } from "@/store/uiStore"
-import { getArtist, Artist, Song, API_BASE } from "@/lib/api"
+import { getArtist, Artist, Song, API_BASE, getSongCover } from "@/lib/api"
 import Link from "next/link"
 
 export default function ArtistPage({ params }: { params: Promise<{ id: string }> }) {
@@ -138,7 +138,7 @@ export default function ArtistPage({ params }: { params: Promise<{ id: string }>
               {visibleTracks.map((song, i) => {
                 const isCurrent = currentSong?.id === song.id
                 const isLiked = likedSongIds.has(song.id)
-                const cover = song.thumbnailUrl || (song.coverUrl ? `${API_BASE}${song.coverUrl}` : "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=100&q=80")
+                const cover = getSongCover(song, 100)
 
                 return (
                   <div

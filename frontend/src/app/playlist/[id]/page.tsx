@@ -15,7 +15,7 @@ import {
 } from "lucide-react"
 import { usePlayerStore } from "@/store/playerStore"
 import { useUIStore } from "@/store/uiStore"
-import { getPlaylist, Playlist, Song, API_BASE } from "@/lib/api"
+import { getPlaylist, Playlist, Song, API_BASE, getSongCover } from "@/lib/api"
 import Link from "next/link"
 
 export default function PlaylistPage({ params }: { params: Promise<{ id: string }> }) {
@@ -216,7 +216,7 @@ export default function PlaylistPage({ params }: { params: Promise<{ id: string 
               {tracks.map((song, i) => {
                 const isCurrent = currentSong?.id === song.id
                 const isLiked = likedSongIds.has(song.id)
-                const cover = song.thumbnailUrl || (song.coverUrl ? `${API_BASE}${song.coverUrl}` : "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=100&q=80")
+                const cover = getSongCover(song, 100)
 
                 return (
                   <div
@@ -263,7 +263,7 @@ export default function PlaylistPage({ params }: { params: Promise<{ id: string 
 
                     {/* Album */}
                     <div className="hidden sm:flex items-center truncate text-sm text-[#b3b3b3] group-hover:text-white transition-colors">
-                      {song.album || "Single"}
+                      {song.album && song.album !== playlist?.name ? song.album : "Single"}
                     </div>
 
                     {/* Heart + Duration */}

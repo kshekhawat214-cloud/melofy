@@ -8,7 +8,10 @@ import shutil
 import requests
 import imageio_ffmpeg
 from pathlib import Path
-from typing import List, Optional, Dict, Any
+import json
+import urllib.parse
+from concurrent.futures import ThreadPoolExecutor
+from typing import List, Optional, Dict, Any, Tuple
 from difflib import SequenceMatcher
 import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
@@ -680,8 +683,88 @@ def _scrape_spotify_track(track_id: str) -> Optional[Dict[str, Any]]:
     return None
 
 
+def resolve_song_cover_and_album(
+    track_id: Optional[str],
+    title: str,
+    artist: str,
+    current_album: str = "",
+) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Robust resolver that guarantees the song gets its authentic, individual cover
+    and real album name — NEVER a playlist mosaic thumbnail or playlist title.
+    Priority:
+    1. If 22-char Spotify ID: Spotify Track embed metadata (individual 640x640 CDN artwork).
+    2. iTunes Search API: official high-res 600x600 artwork and genuine collection/album name.
+    3. JioSaavn candidate resolver: 500x500 artwork and album name.
+    """
+    cover = None
+    album = None
+
+    # Step 1: Spotify Track embed scrape if valid 22-char Spotify ID
+    if track_id and len(track_id) == 22 and "-" not in track_id:
+        try:
+            t = _scrape_spotify_track(track_id)
+            if t:
+                thumb = t.get("thumbnail_url")
+                if thumb and "mosaic.scdn.co" not in thumb:
+                    cover = thumb
+                if t.get("album") and t.get("album").strip():
+                    album = t.get("album").strip()
+        except Exception as e:
+            logger.debug(f"Spotify track embed cover fetch failed for {track_id}: {e}")
+
+    # Step 2: iTunes Search API for official artwork and authentic collection name
+    if not cover or not album:
+        try:
+            lead_artist = artist.split(",")[0].strip() if artist else ""
+            clean_t = re.sub(r"\(.*?\)|\[.*?\]", "", title).strip()
+            clean_t = clean_t.split("-")[0].strip() if "-" in clean_t else clean_t
+            query_str = f"{clean_t} {lead_artist}".strip()
+            q = urllib.parse.quote(query_str)
+            itunes_url = f"https://itunes.apple.com/search?term={q}&media=music&entity=song&limit=1"
+            res = requests.get(itunes_url, timeout=4)
+            if res.status_code == 200:
+                results = res.json().get("results", [])
+                if results:
+                    first = results[0]
+                    if not cover:
+                        art = first.get("artworkUrl100", "").replace("100x100bb", "600x600bb")
+                        if art and "mosaic.scdn.co" not in art:
+                            cover = art
+                    if not album:
+                        alb_name = first.get("collectionName", "")
+                        if alb_name and alb_name.strip():
+                            album = alb_name.strip()
+        except Exception as e:
+            logger.debug(f"iTunes cover fetch error for {title}: {e}")
+
+    # Step 3: JioSaavn candidate fallback (500x500 high-res image and album)
+    if not cover or not album:
+        try:
+            clean_t = clean_song_title(title)
+            lead_artist = artist.split(",")[0].strip() if artist else ""
+            cand = resolve_jiosaavn_candidate(clean_t, lead_artist, title, 0)
+            if cand:
+                if not cover and cand.get("image"):
+                    img = cand["image"].replace("50x50.jpg", "500x500.jpg").replace("150x150.jpg", "500x500.jpg")
+                    if img and "mosaic.scdn.co" not in img:
+                        cover = img
+                if not album and cand.get("album") and cand.get("album").strip():
+                    album = cand["album"].strip()
+        except Exception as e:
+            logger.debug(f"JioSaavn fallback cover error for {title}: {e}")
+
+    # Final sanity cleanup
+    if cover and "mosaic.scdn.co" in cover:
+        cover = None
+    if not album:
+        album = "Single"
+
+    return cover, album
+
+
 def _scrape_spotify_playlist(playlist_id: str) -> List[Dict[str, Any]]:
-    """Extract all tracks from a Spotify playlist or album using embed page."""
+    """Extract all tracks from a Spotify playlist or album using embed page, enriching with individual covers."""
     entity = _get_spotify_embed_entity("playlist", playlist_id)
     if not entity:
         entity = _get_spotify_embed_entity("album", playlist_id)
@@ -690,28 +773,111 @@ def _scrape_spotify_playlist(playlist_id: str) -> List[Dict[str, Any]]:
         return []
 
     track_list = entity.get("trackList", [])
-    pl_images = entity.get("visualIdentity", {}).get("image", [])
-    default_thumb = pl_images[0].get("url") if pl_images else None
     pl_name = entity.get("name") or entity.get("title") or "Spotify Playlist"
 
-    tracks = []
+    raw_tracks = []
     for t in track_list:
         uri = t.get("uri", "")
         tid = uri.split(":track:")[-1] if ":track:" in uri else str(uuid.uuid4())
         raw_title = t.get("title") or t.get("name") or "Unknown Title"
         raw_artist = t.get("subtitle") or "Unknown Artist"
-        tracks.append({
+        raw_tracks.append({
             "id": tid,
             "title": raw_title.replace("\xa0", " ").strip(),
             "artist": raw_artist.replace("\xa0", " ").strip(),
-            "album": pl_name,
-            "thumbnail_url": default_thumb,
+            "album": "",
+            "thumbnail_url": None,
             "duration": (t.get("duration") or 0) / 1000.0,
             "popularity": 0,
         })
 
-    logger.info(f"Embed scraper extracted {len(tracks)} tracks from '{pl_name}'")
+    def _enrich_track(item):
+        try:
+            cov, alb = resolve_song_cover_and_album(item["id"], item["title"], item["artist"], "")
+            if cov and "mosaic.scdn.co" not in cov:
+                item["thumbnail_url"] = cov
+            if alb:
+                item["album"] = alb
+            elif not item.get("album"):
+                item["album"] = "Single"
+        except Exception as err:
+            logger.warning(f"Failed to enrich track {item.get('title')}: {err}")
+            if not item.get("album"):
+                item["album"] = "Single"
+        return item
+
+    # Concurrently enrich tracks with their original album covers and album titles
+    if raw_tracks:
+        workers = min(12, len(raw_tracks))
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            tracks = list(executor.map(_enrich_track, raw_tracks))
+    else:
+        tracks = []
+
+    logger.info(f"Embed scraper extracted & enriched {len(tracks)} tracks from '{pl_name}'")
     return tracks
+
+
+def repair_all_mosaic_covers() -> dict:
+    """
+    Scans the database for any songs with mosaic thumbnails or missing covers/albums,
+    and updates them with authentic original individual covers and album titles.
+    """
+    from database.models import SessionLocal, Song
+    from sqlalchemy import or_
+
+    db = SessionLocal()
+    try:
+        # Find all songs with mosaic thumbnails, missing thumbnails, or generic album names
+        songs = db.query(Song).filter(
+            or_(
+                Song.thumbnail_url.like("%mosaic.scdn.co%"),
+                Song.thumbnail_url == None,
+                Song.thumbnail_url == "",
+                Song.cover_path.like("%mosaic.scdn.co%"),
+            )
+        ).all()
+
+        if not songs:
+            logger.info("Cover repair check: No mosaic or missing song covers found.")
+            return {"scanned": 0, "repaired": 0, "status": "clean"}
+
+        logger.info(f"Starting cover repair for {len(songs)} songs with mosaic/missing covers...")
+
+        def _repair_worker(song_tuple):
+            s_id, s_title, s_artist, s_album = song_tuple
+            c, a = resolve_song_cover_and_album(s_id, s_title, s_artist, s_album)
+            return s_id, c, a
+
+        tasks = [(s.id, s.title, s.artist, s.album) for s in songs]
+        workers = min(12, len(tasks))
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            results = list(executor.map(_repair_worker, tasks))
+
+        repaired_count = 0
+        for s_id, cov, alb in results:
+            s = db.query(Song).filter(Song.id == s_id).first()
+            if not s:
+                continue
+            updated = False
+            if cov and "mosaic.scdn.co" not in cov:
+                s.thumbnail_url = cov
+                s.cover_path = cov
+                updated = True
+            if alb and (not s.album or s.album in ("kind", "Massala", "Imported Playlist", "Spotify Playlist")):
+                s.album = alb
+                updated = True
+            if updated:
+                repaired_count += 1
+
+        db.commit()
+        logger.info(f"Cover repair completed successfully: {repaired_count}/{len(songs)} songs updated.")
+        return {"scanned": len(songs), "repaired": repaired_count, "status": "success"}
+    except Exception as e:
+        logger.error(f"Error repairing covers: {e}")
+        return {"error": str(e), "status": "failed"}
+    finally:
+        db.close()
 
 
 def spotify_queries(url: str) -> List[Dict[str, Any]]:
