@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 from database.models import create_tables
-from routers import ingest, songs, recommendations, playlists, likes, catalog
+from routers import ingest, songs, recommendations, playlists, likes, catalog, auth
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -24,10 +24,11 @@ import mimetypes
 # Explicitly register audio MIME types for Linux/Docker environments
 mimetypes.add_type("audio/mp4", ".m4a")
 mimetypes.add_type("audio/mp4", ".mp4")
-mimetypes.add_type("audio/x-m4a", ".m4a")
+mimetypes.add_type("audio/mp4", ".aac")
 mimetypes.add_type("audio/mpeg", ".mp3")
 mimetypes.add_type("audio/webm", ".webm")
 mimetypes.add_type("audio/ogg", ".opus")
+mimetypes.add_type("audio/ogg", ".ogg")
 
 def verify_and_clean_audio_cache():
     """Scans local audio files and purges any file whose duration differs from official DB duration by > 30%."""
@@ -108,6 +109,7 @@ LOCAL_STORAGE.mkdir(exist_ok=True)
 app.mount("/static", StaticFiles(directory=str(LOCAL_STORAGE)), name="static")
 
 # Register route modules
+app.include_router(auth.router)
 app.include_router(ingest.router)
 app.include_router(songs.router)
 app.include_router(recommendations.router)

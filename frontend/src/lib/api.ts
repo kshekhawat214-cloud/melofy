@@ -109,10 +109,45 @@ export interface UserSettings {
   accentColor: string
 }
 
+export function getAuthHeaders(): Record<string, string> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" }
+  if (typeof window !== "undefined") {
+    const token = localStorage.getItem("melofy_auth_token")
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`
+    }
+    const userStr = localStorage.getItem("melofy_auth_user")
+    if (userStr) {
+      try {
+        const u = JSON.parse(userStr)
+        if (u?.id) headers["X-User-Id"] = u.id
+      } catch {}
+    }
+  }
+  return headers
+}
+
+export function getCurrentUserId(): string {
+  if (typeof window !== "undefined") {
+    const userStr = localStorage.getItem("melofy_auth_user")
+    if (userStr) {
+      try {
+        const u = JSON.parse(userStr)
+        if (u?.id) return u.id
+      } catch {}
+    }
+  }
+  return "1"
+}
+
 // --- Home Feed & Songs ---
-export async function getHomeFeed(userId: string = "1"): Promise<Shelf[]> {
+export async function getHomeFeed(userId?: string): Promise<Shelf[]> {
   try {
-    const res = await fetch(`${API_BASE}/api/home/${userId}`, { cache: "no-store" })
+    const uid = userId || getCurrentUserId()
+    const res = await fetch(`${API_BASE}/api/home/${uid}`, {
+      headers: getAuthHeaders(),
+      cache: "no-store",
+    })
     if (!res.ok) throw new Error("Failed to fetch home feed")
     const data = await res.json()
     return data.shelves as Shelf[]
@@ -142,9 +177,13 @@ export async function getSong(songId: string): Promise<Song | null> {
 }
 
 // --- Playlists API ---
-export async function getPlaylists(): Promise<Playlist[]> {
+export async function getPlaylists(userId?: string): Promise<Playlist[]> {
   try {
-    const res = await fetch(`${API_BASE}/api/playlists`, { cache: "no-store" })
+    const uid = userId || getCurrentUserId()
+    const res = await fetch(`${API_BASE}/api/playlists?user_id=${encodeURIComponent(uid)}`, {
+      headers: getAuthHeaders(),
+      cache: "no-store",
+    })
     if (!res.ok) return []
     return res.json()
   } catch {
@@ -154,7 +193,10 @@ export async function getPlaylists(): Promise<Playlist[]> {
 
 export async function getPlaylist(playlistId: string): Promise<Playlist | null> {
   try {
-    const res = await fetch(`${API_BASE}/api/playlists/${playlistId}`, { cache: "no-store" })
+    const res = await fetch(`${API_BASE}/api/playlists/${playlistId}`, {
+      headers: getAuthHeaders(),
+      cache: "no-store",
+    })
     if (!res.ok) return null
     return res.json()
   } catch {
@@ -162,11 +204,12 @@ export async function getPlaylist(playlistId: string): Promise<Playlist | null> 
   }
 }
 
-export async function createPlaylist(data: { name: string; description?: string; cover_url?: string }): Promise<Playlist | null> {
+export async function createPlaylist(data: { name: string; description?: string; cover_url?: string }, userId?: string): Promise<Playlist | null> {
   try {
-    const res = await fetch(`${API_BASE}/api/playlists`, {
+    const uid = userId || getCurrentUserId()
+    const res = await fetch(`${API_BASE}/api/playlists?user_id=${encodeURIComponent(uid)}`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: getAuthHeaders(),
       body: JSON.stringify(data),
     })
     if (!res.ok) return null
@@ -180,7 +223,7 @@ export async function updatePlaylist(playlistId: string, data: { name?: string; 
   try {
     const res = await fetch(`${API_BASE}/api/playlists/${playlistId}`, {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      headers: getAuthHeaders(),
       body: JSON.stringify(data),
     })
     if (!res.ok) return null
@@ -192,7 +235,10 @@ export async function updatePlaylist(playlistId: string, data: { name?: string; 
 
 export async function deletePlaylist(playlistId: string): Promise<boolean> {
   try {
-    const res = await fetch(`${API_BASE}/api/playlists/${playlistId}`, { method: "DELETE" })
+    const res = await fetch(`${API_BASE}/api/playlists/${playlistId}`, {
+      method: "DELETE",
+      headers: getAuthHeaders(),
+    })
     return res.ok
   } catch {
     return false
@@ -203,7 +249,7 @@ export async function addTrackToPlaylist(playlistId: string, songId: string): Pr
   try {
     const res = await fetch(`${API_BASE}/api/playlists/${playlistId}/tracks`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: getAuthHeaders(),
       body: JSON.stringify({ song_id: songId }),
     })
     return res.ok
@@ -214,7 +260,10 @@ export async function addTrackToPlaylist(playlistId: string, songId: string): Pr
 
 export async function removeTrackFromPlaylist(playlistId: string, songId: string): Promise<boolean> {
   try {
-    const res = await fetch(`${API_BASE}/api/playlists/${playlistId}/tracks/${songId}`, { method: "DELETE" })
+    const res = await fetch(`${API_BASE}/api/playlists/${playlistId}/tracks/${songId}`, {
+      method: "DELETE",
+      headers: getAuthHeaders(),
+    })
     return res.ok
   } catch {
     return false
@@ -222,9 +271,13 @@ export async function removeTrackFromPlaylist(playlistId: string, songId: string
 }
 
 // --- Liked Songs API ---
-export async function getLikedSongs(): Promise<{ songs: Song[]; songCount: number; totalDuration: number }> {
+export async function getLikedSongs(userId?: string): Promise<{ songs: Song[]; songCount: number; totalDuration: number }> {
   try {
-    const res = await fetch(`${API_BASE}/api/me/liked`, { cache: "no-store" })
+    const uid = userId || getCurrentUserId()
+    const res = await fetch(`${API_BASE}/api/me/liked?user_id=${encodeURIComponent(uid)}`, {
+      headers: getAuthHeaders(),
+      cache: "no-store",
+    })
     if (!res.ok) return { songs: [], songCount: 0, totalDuration: 0 }
     return res.json()
   } catch {
@@ -232,9 +285,13 @@ export async function getLikedSongs(): Promise<{ songs: Song[]; songCount: numbe
   }
 }
 
-export async function getLikedSongIds(): Promise<string[]> {
+export async function getLikedSongIds(userId?: string): Promise<string[]> {
   try {
-    const res = await fetch(`${API_BASE}/api/me/liked/ids`, { cache: "no-store" })
+    const uid = userId || getCurrentUserId()
+    const res = await fetch(`${API_BASE}/api/me/liked/ids?user_id=${encodeURIComponent(uid)}`, {
+      headers: getAuthHeaders(),
+      cache: "no-store",
+    })
     if (!res.ok) return []
     return res.json()
   } catch {
@@ -242,18 +299,26 @@ export async function getLikedSongIds(): Promise<string[]> {
   }
 }
 
-export async function likeSong(songId: string): Promise<boolean> {
+export async function likeSong(songId: string, userId?: string): Promise<boolean> {
   try {
-    const res = await fetch(`${API_BASE}/api/me/liked/${songId}`, { method: "POST" })
+    const uid = userId || getCurrentUserId()
+    const res = await fetch(`${API_BASE}/api/me/liked/${songId}?user_id=${encodeURIComponent(uid)}`, {
+      method: "POST",
+      headers: getAuthHeaders(),
+    })
     return res.ok
   } catch {
     return false
   }
 }
 
-export async function unlikeSong(songId: string): Promise<boolean> {
+export async function unlikeSong(songId: string, userId?: string): Promise<boolean> {
   try {
-    const res = await fetch(`${API_BASE}/api/me/liked/${songId}`, { method: "DELETE" })
+    const uid = userId || getCurrentUserId()
+    const res = await fetch(`${API_BASE}/api/me/liked/${songId}?user_id=${encodeURIComponent(uid)}`, {
+      method: "DELETE",
+      headers: getAuthHeaders(),
+    })
     return res.ok
   } catch {
     return false
@@ -372,11 +437,12 @@ export async function getIngestStatus(jobId: string) {
 
 export async function recordInteraction(userId: string, songId: string, interactionType: string) {
   try {
+    const uid = userId || getCurrentUserId()
     await fetch(`${API_BASE}/api/interaction`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: getAuthHeaders(),
       body: JSON.stringify({
-        user_id: userId || "1",
+        user_id: uid,
         song_id: songId,
         interaction_type: interactionType,
       }),

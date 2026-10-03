@@ -165,3 +165,10 @@ export const useUIStore = create<UIState>((set, get) => ({
     set({ playlists: pls })
   },
 }))
+
+if (typeof window !== "undefined") {
+  window.addEventListener("melofy_auth_change", () => {
+    useUIStore.getState().loadPlaylists()
+    useUIStore.getState().loadLikedSongIds()
+  })
+}

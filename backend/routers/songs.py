@@ -32,6 +32,44 @@ def get_song(song_id: str, db: Session = Depends(get_db)):
     return _serialize(song)
 
 
+STREAM_HEADERS = {
+    "Accept-Ranges": "bytes",
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+    "Access-Control-Allow-Headers": "*",
+    "Access-Control-Expose-Headers": "Content-Range, Content-Length, Accept-Ranges",
+}
+
+
+def get_audio_mime_type(file_path: Path) -> str:
+    """Returns official RFC audio MIME type acceptable by all browsers (Chrome/Safari/Android/Edge)."""
+    ext = file_path.suffix.lower()
+    if ext in [".m4a", ".aac"]:
+        return "audio/mp4"
+    if ext == ".mp4":
+        return "audio/mp4"
+    if ext == ".mp3":
+        return "audio/mpeg"
+    if ext in [".ogg", ".oga", ".opus"]:
+        return "audio/ogg"
+    if ext == ".wav":
+        return "audio/wav"
+    if ext == ".flac":
+        return "audio/flac"
+    if ext == ".webm":
+        return "audio/webm"
+    guessed, _ = mimetypes.guess_type(str(file_path))
+    if guessed in ["audio/x-m4a", "video/mp4", "application/octet-stream"]:
+        return "audio/mp4"
+    return guessed or "audio/mp4"
+
+
+@router.options("/songs/{song_id}/stream")
+def options_stream_audio(song_id: str):
+    from fastapi import Response
+    return Response(status_code=204, headers=STREAM_HEADERS)
+
+
 @router.get("/songs/{song_id}/stream")
 async def stream_audio(song_id: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     """
@@ -50,7 +88,7 @@ async def stream_audio(song_id: str, background_tasks: BackgroundTasks, db: Sess
 
         # 1. If audio is an external direct CDN URL, redirect immediately (sub-100ms)
         if song.audio_path and (song.audio_path.startswith("http://") or song.audio_path.startswith("https://")):
-            return RedirectResponse(url=song.audio_path, status_code=307)
+            return RedirectResponse(url=song.audio_path, status_code=307, headers=STREAM_HEADERS)
 
         path = None
         if song.audio_path:
@@ -87,15 +125,13 @@ async def stream_audio(song_id: str, background_tasks: BackgroundTasks, db: Sess
             except Exception as check_err:
                 logger.info(f"Duration verification note: {check_err}")
 
-        # 3. If valid file is available on disk, serve it with HTTP 206 Range headers
+        # 3. If valid file is available on disk, serve it with HTTP 206 Range headers and RFC media type
         if path and path.exists() and path.stat().st_size > 1024 * 50:
-            mime_type, _ = mimetypes.guess_type(path)
-            if not mime_type:
-                mime_type = "audio/mp4" if path.suffix in [".m4a", ".mp4"] else "audio/mpeg"
+            mime_type = get_audio_mime_type(path)
             return FileResponse(
                 path=str(path),
                 media_type=mime_type,
-                headers={"Accept-Ranges": "bytes"},
+                headers=STREAM_HEADERS,
             )
 
         # 4. Smart Sub-Second Stream Resolver (Resolves in < 1s!)
@@ -142,7 +178,7 @@ async def stream_audio(song_id: str, background_tasks: BackgroundTasks, db: Sess
                         logger.warning(f"Background stream cache failed: {bg_err}")
 
                 background_tasks.add_task(_bg_download, track_meta, song.source_url or "")
-                return RedirectResponse(url=direct_url, status_code=307)
+                return RedirectResponse(url=direct_url, status_code=307, headers=STREAM_HEADERS)
         except Exception as resolve_err:
             logger.warning(f"Direct stream resolver passed to full download: {resolve_err}")
 
@@ -165,14 +201,11 @@ async def stream_audio(song_id: str, background_tasks: BackgroundTasks, db: Sess
             logger.error(f"Smart Resolver failed for {song_id}: {e}")
             raise HTTPException(status_code=502, detail=f"Audio resolution failed: {str(e)}")
 
-        mime_type, _ = mimetypes.guess_type(path)
-        if not mime_type:
-            mime_type = "audio/mp4" if path.suffix in [".m4a", ".mp4"] else "audio/mpeg"
-
+        mime_type = get_audio_mime_type(path)
         return FileResponse(
             path=str(path),
             media_type=mime_type,
-            headers={"Accept-Ranges": "bytes"},
+            headers=STREAM_HEADERS,
         )
     except HTTPException:
         raise

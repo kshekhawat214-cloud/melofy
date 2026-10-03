@@ -23,7 +23,8 @@ import {
 } from "lucide-react"
 import { usePlayerStore } from "@/store/playerStore"
 import { useUIStore } from "@/store/uiStore"
-import { API_BASE, getSongCover } from "@/lib/api"
+import { useAuthStore } from "@/store/authStore"
+import { API_BASE, getSongCover, recordInteraction } from "@/lib/api"
 
 export default function Player() {
   const {
@@ -56,6 +57,11 @@ export default function Player() {
   const { likedSongIds, toggleLikeSong, openContextMenu } = useUIStore()
 
   const audioRef = useRef<HTMLAudioElement | null>(null)
+  const { user } = useAuthStore()
+  const currentUserId = user?.id || "1"
+  const hasLoggedPlayRef = useRef(false)
+  const previousSongRef = useRef<{ id: string; duration?: number; progress: number } | null>(null)
+
   const [isHoveringProgress, setIsHoveringProgress] = useState(false)
   const [isHoveringVolume, setIsHoveringVolume] = useState(false)
   const [isBuffering, setIsBuffering] = useState(false)
@@ -100,19 +106,30 @@ export default function Player() {
     return `${base}${url.startsWith("/") ? "" : "/"}${url}`
   }, [])
 
-  // Audio source change
+  // Audio source change & Spotify recommendation skip signal tracking
   useEffect(() => {
-    if (audioRef.current && currentSong) {
-      setIsBuffering(true)
-      if (currentSong.duration) {
-        setDuration(currentSong.duration)
-      }
-      audioRef.current.load()
-      if (isPlaying) {
-        audioRef.current.play().catch((err) => console.log("Audio play prevented:", err))
-      }
+    if (!currentSong) return
+
+    // If previous song was skipped early (< 15s) and duration was normal (> 45s), record SKIP
+    if (
+      previousSongRef.current &&
+      previousSongRef.current.id !== currentSong.id &&
+      !hasLoggedPlayRef.current &&
+      previousSongRef.current.progress > 0 &&
+      previousSongRef.current.progress < 15 &&
+      (previousSongRef.current.duration || 0) > 45
+    ) {
+      recordInteraction(currentUserId, previousSongRef.current.id, "SKIP")
     }
-  }, [currentSong?.id])
+
+    // Reset interaction trackers for the newly loaded song
+    hasLoggedPlayRef.current = false
+    setIsBuffering(true)
+    if (currentSong.duration) {
+      setDuration(currentSong.duration)
+    }
+    previousSongRef.current = { id: currentSong.id, duration: currentSong.duration, progress: 0 }
+  }, [currentSong?.id, currentUserId])
 
   // Playback control
   useEffect(() => {
@@ -193,11 +210,31 @@ export default function Player() {
 
   const handleTimeUpdate = () => {
     if (audioRef.current) {
-      setProgress(audioRef.current.currentTime)
+      const cur = audioRef.current.currentTime
+      setProgress(cur)
+      if (previousSongRef.current) {
+        previousSongRef.current.progress = cur
+      }
       if (audioRef.current.duration && !isNaN(audioRef.current.duration)) {
         setDuration(audioRef.current.duration)
       }
+
+      // Spotify recommendation signal: listening for >= 30s counts as an engaged PLAY
+      if (!hasLoggedPlayRef.current && currentSong) {
+        const threshold = Math.min(30, (currentSong.duration || 60) * 0.5)
+        if (cur >= threshold) {
+          hasLoggedPlayRef.current = true
+          recordInteraction(currentUserId, currentSong.id, "PLAY")
+        }
+      }
     }
+  }
+
+  const handleEnded = () => {
+    if (repeatMode === "one" && currentSong) {
+      recordInteraction(currentUserId, currentSong.id, "REPLAY")
+    }
+    playNext()
   }
 
   const formatTime = (time: number) => {
@@ -257,7 +294,6 @@ export default function Player() {
       {/* Persistent HTML5 Audio Element - Never unmounted on viewport changes */}
       {currentSong && (
         <audio
-          key={currentSong.id}
           ref={audioRef}
           src={getFullAudioUrl(currentSong.streamUrl)}
           preload="auto"
@@ -277,7 +313,7 @@ export default function Player() {
             console.error("Audio stream error:", e)
             setIsBuffering(false)
           }}
-          onEnded={playNext}
+          onEnded={handleEnded}
         />
       )}
 

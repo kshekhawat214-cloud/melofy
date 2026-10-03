@@ -12,6 +12,7 @@ import ContextMenu from "@/components/ContextMenu"
 import PlaylistModal from "@/components/PlaylistModal"
 import SettingsModal from "@/components/SettingsModal"
 import ProfileModal from "@/components/ProfileModal"
+import AuthModal from "@/components/AuthModal"
 import "./globals.css"
 
 const inter = Inter({
@@ -65,6 +66,7 @@ export default function RootLayout({
         <MobileTabBar />
 
         {/* Global Modals & Overlays */}
+        <AuthModal />
         <ImportModal />
         <PlaylistModal />
         <SettingsModal />

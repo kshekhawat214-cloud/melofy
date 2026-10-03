@@ -224,20 +224,9 @@ def build_dynamic_shelves(db: Session, user_id: str) -> List[Dict]:
     context = get_time_context()
 
     def song_to_dict(s: Song) -> Dict:
-        """Serializes a Song object with direct static and API fallback links for the home feed."""
-        return {
-            "id": s.id,
-            "title": s.title,
-            "artist": s.artist,
-            "album": s.album or "",
-            "genre": s.genre or "",
-            "mood": s.mood or "",
-            "duration": s.duration or 0,
-            # Direct static URLs for the 0:00 duration fix
-            "streamUrl": f"/static/audio/{s.id}.mp3",
-            "coverUrl": f"/api/songs/{s.id}/cover",
-            "thumbnailUrl": s.thumbnail_url,
-        }
+        """Serializes a Song object using the canonical song serializer with robust stream links."""
+        from routers.songs import _serialize
+        return _serialize(s)
 
     top_picks = [song_to_dict(item["song"]) for item in scored[:10]]
 
@@ -272,12 +261,42 @@ def build_dynamic_shelves(db: Session, user_id: str) -> List[Dict]:
         "songs": [song_to_dict(s) for s in fresh_songs],
     }
 
-    shelves = [
-        {"id": "shelf_top", "title": "Made For You", "songs": top_picks},
-        context_shelf,
-        *genre_shelves,
-        fresh_shelf,
-    ]
+    user = db.query(User).filter(User.id == user_id).first()
+    user_display = user.name if user and user.name and user.name != "Guest" else "You"
+
+    # Jump Back In: recently played songs by this user
+    jump_back_in_songs = []
+    try:
+        recent_interactions = (
+            db.query(Interaction)
+            .filter(Interaction.user_id == user_id, Interaction.interaction_type.in_(["PLAY", "REPLAY", "LIKE"]))
+            .order_by(Interaction.timestamp.desc())
+            .limit(25)
+            .all()
+        )
+        seen_ids = set()
+        recent_ids = []
+        for ri in recent_interactions:
+            if ri.song_id not in seen_ids:
+                seen_ids.add(ri.song_id)
+                recent_ids.append(ri.song_id)
+
+        if recent_ids:
+            found_songs = {s.id: s for s in db.query(Song).filter(Song.id.in_(recent_ids[:10])).all()}
+            for sid in recent_ids[:10]:
+                if sid in found_songs:
+                    jump_back_in_songs.append(song_to_dict(found_songs[sid]))
+    except Exception as e:
+        logger.info(f"Jump back in resolution note: {e}")
+
+    shelves = []
+    if jump_back_in_songs:
+        shelves.append({"id": "shelf_jump_back", "title": "Jump Back In", "songs": jump_back_in_songs})
+
+    shelves.append({"id": "shelf_top", "title": f"Made For {user_display}", "songs": top_picks})
+    shelves.append(context_shelf)
+    shelves.extend(genre_shelves)
+    shelves.append(fresh_shelf)
 
     # Filter empty shelves
     return [s for s in shelves if s["songs"]]

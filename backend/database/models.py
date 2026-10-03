@@ -149,8 +149,10 @@ class User(Base):
     __tablename__ = "users"
 
     id = Column(String, primary_key=True, index=True)
+    username = Column(String, unique=True, index=True, nullable=True)
     name = Column(String, nullable=False)
-    email = Column(String, unique=True, nullable=True)
+    email = Column(String, unique=True, index=True, nullable=True)
+    password_hash = Column(String, nullable=True)
     avatar_url = Column(String, nullable=True)
 
     genre_affinities = Column(Text, default="{}")  # JSON string
@@ -228,3 +230,36 @@ def get_db():
 
 def create_tables():
     Base.metadata.create_all(bind=engine)
+    try:
+        from sqlalchemy import inspect, text
+        inspector = inspect(engine)
+        if inspector.has_table("users"):
+            columns = [c["name"] for c in inspector.get_columns("users")]
+            with engine.connect() as conn:
+                if "username" not in columns:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN username VARCHAR"))
+                if "password_hash" not in columns:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN password_hash VARCHAR"))
+                conn.commit()
+    except Exception as e:
+        logger.info(f"User table migration check: {e}")
+
+    # Seed default Guest user if not present
+    try:
+        db = SessionLocal()
+        guest = db.query(User).filter(User.id == "1").first()
+        if not guest:
+            guest = User(
+                id="1",
+                username="guest",
+                name="Guest",
+                email="guest@tunely.local",
+            )
+            db.add(guest)
+            db.commit()
+        elif not guest.username:
+            guest.username = "guest"
+            db.commit()
+        db.close()
+    except Exception as seed_err:
+        logger.info(f"Guest user seed note: {seed_err}")

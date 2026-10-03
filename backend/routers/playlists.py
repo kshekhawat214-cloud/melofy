@@ -71,25 +71,57 @@ def _serialize_playlist(p: Playlist, include_tracks: bool = False) -> dict:
     }
 
 
+from routers.auth import get_current_user_id
+from fastapi import Query, Header
+
+
+def resolve_user_id(
+    user_id: Optional[str] = Query(None),
+    authorization: Optional[str] = Header(None),
+    x_user_id: Optional[str] = Header(None),
+) -> str:
+    """Resolves target user ID from query param, auth bearer token, or x-user-id header."""
+    if user_id:
+        return user_id.strip()
+    return get_current_user_id(authorization, x_user_id)
+
+
 @router.get("")
-def list_playlists(db: Session = Depends(get_db)):
-    playlists = db.query(Playlist).order_by(Playlist.updated_at.desc()).all()
+def list_playlists(
+    user_id: Optional[str] = Depends(resolve_user_id),
+    db: Session = Depends(get_db)
+):
+    """
+    Returns playlists. If user_id is provided, returns playlists owned by the user,
+    plus public playlists, with the user's playlists listed first.
+    """
+    if user_id and user_id != "1":
+        user_playlists = db.query(Playlist).filter(Playlist.owner_id == user_id).order_by(Playlist.updated_at.desc()).all()
+        public_other = db.query(Playlist).filter(Playlist.owner_id != user_id, Playlist.is_public == 1).order_by(Playlist.updated_at.desc()).all()
+        playlists = user_playlists + public_other
+    else:
+        playlists = db.query(Playlist).order_by(Playlist.updated_at.desc()).all()
+
     return [_serialize_playlist(p, include_tracks=False) for p in playlists]
 
 
 @router.post("")
-def create_playlist(data: PlaylistCreate, db: Session = Depends(get_db)):
-    # Ensure guest user exists
-    user = db.query(User).filter(User.id == "1").first()
+def create_playlist(
+    data: PlaylistCreate,
+    user_id: str = Depends(resolve_user_id),
+    db: Session = Depends(get_db)
+):
+    # Ensure user exists
+    user = db.query(User).filter(User.id == user_id).first()
     if not user:
-        user = User(id="1", name="Guest", email="guest@tunely.local")
+        user = User(id=user_id, name="User" if user_id != "1" else "Guest", email=f"{user_id}@tunely.local")
         db.add(user)
         db.commit()
 
     playlist_id = f"pl_{uuid.uuid4().hex[:8]}"
     playlist = Playlist(
         id=playlist_id,
-        owner_id="1",
+        owner_id=user_id,
         name=data.name.strip() or "My Playlist",
         description=data.description,
         cover_url=data.cover_url,

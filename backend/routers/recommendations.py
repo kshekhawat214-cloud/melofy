@@ -10,7 +10,7 @@ import uuid
 
 router = APIRouter(prefix="/api", tags=["Recommendations"])
 
-DEFAULT_USER_ID = "guest"  # Placeholder until auth is implemented
+DEFAULT_USER_ID = "1"
 
 
 class InteractionRequest(BaseModel):

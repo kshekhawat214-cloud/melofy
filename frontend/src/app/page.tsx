@@ -1,10 +1,11 @@
 "use client"
-import { useEffect, useState } from "react"
+import { useEffect, useState, useCallback } from "react"
 import Header from "@/components/Header"
 import { Play, Pause } from "lucide-react"
 import { getHomeFeed, getPlaylists, Shelf, Song, Playlist, API_BASE, getSongCover } from "@/lib/api"
 import { usePlayerStore } from "@/store/playerStore"
 import { useUIStore } from "@/store/uiStore"
+import { useAuthStore } from "@/store/authStore"
 import Link from "next/link"
 
 function SongCard({ song, shelfSongs }: { song: Song; shelfSongs: Song[] }) {
@@ -70,22 +71,35 @@ function SongCard({ song, shelfSongs }: { song: Song; shelfSongs: Song[] }) {
 
 export default function Home() {
   const { currentSong, isPlaying, playSongWithQueue, togglePlay } = usePlayerStore()
+  const { user } = useAuthStore()
   const [shelves, setShelves] = useState<Shelf[]>([])
   const [playlists, setPlaylists] = useState<Playlist[]>([])
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    async function loadData() {
-      const [feed, pls] = await Promise.all([getHomeFeed("1"), getPlaylists()])
+  const loadData = useCallback(async () => {
+    try {
+      const uid = user?.id || "1"
+      const [feed, pls] = await Promise.all([getHomeFeed(uid), getPlaylists(uid)])
       setShelves(feed)
       setPlaylists(pls)
+    } finally {
       setLoading(false)
     }
+  }, [user?.id])
+
+  useEffect(() => {
     loadData()
-  }, [])
+  }, [loadData])
+
+  useEffect(() => {
+    const handleAuthChange = () => loadData()
+    window.addEventListener("melofy_auth_change", handleAuthChange)
+    return () => window.removeEventListener("melofy_auth_change", handleAuthChange)
+  }, [loadData])
 
   const hour = new Date().getHours()
-  const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening"
+  const baseGreeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening"
+  const greeting = user?.displayName ? `${baseGreeting}, ${user.displayName}` : baseGreeting
 
   const allSongs = shelves.flatMap((s) => s.songs)
   // Deduplicate for quick-access tiles
