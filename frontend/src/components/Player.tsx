@@ -142,12 +142,45 @@ export default function Player() {
     }
   }, [isPlaying])
 
-  // Volume sync
-  useEffect(() => {
+  // Volume sync: reapply whenever volume, mute state, or song changes
+  const applyCurrentVolume = useCallback(() => {
     if (audioRef.current) {
-      audioRef.current.volume = isMuted ? 0 : volume
+      const targetVolume = isMuted ? 0 : volume
+      audioRef.current.volume = targetVolume
     }
   }, [volume, isMuted])
+
+  useEffect(() => {
+    applyCurrentVolume()
+  }, [applyCurrentVolume, currentSong?.id])
+
+  // Continuous listener to intercept and suppress browser-internal volume resets to 1.0 on track change
+  useEffect(() => {
+    const audio = audioRef.current
+    if (!audio) return
+
+    const syncVol = () => {
+      const target = isMuted ? 0 : volume
+      if (Math.abs(audio.volume - target) > 0.005) {
+        audio.volume = target
+      }
+    }
+
+    syncVol()
+    audio.addEventListener("loadedmetadata", syncVol)
+    audio.addEventListener("canplay", syncVol)
+    audio.addEventListener("play", syncVol)
+    audio.addEventListener("playing", syncVol)
+    audio.addEventListener("volumechange", syncVol)
+
+    return () => {
+      audio.removeEventListener("loadedmetadata", syncVol)
+      audio.removeEventListener("canplay", syncVol)
+      audio.removeEventListener("play", syncVol)
+      audio.removeEventListener("playing", syncVol)
+      audio.removeEventListener("volumechange", syncVol)
+    }
+  }, [volume, isMuted, currentSong?.id])
 
   // Media Session API & Document Title
   useEffect(() => {
@@ -259,6 +292,9 @@ export default function Player() {
     const x = e.clientX - bounds.left
     const percentage = Math.max(0, Math.min(1, x / bounds.width))
     setVolume(percentage)
+    if (audioRef.current) {
+      audioRef.current.volume = percentage
+    }
   }
 
   const startDragging = (e: React.MouseEvent, type: "volume" | "progress") => {
@@ -271,6 +307,9 @@ export default function Player() {
 
       if (type === "volume") {
         setVolume(percentage)
+        if (audioRef.current) {
+          audioRef.current.volume = percentage
+        }
       } else if (type === "progress" && audioRef.current) {
         const time = percentage * (duration || 1)
         audioRef.current.currentTime = time
@@ -297,13 +336,20 @@ export default function Player() {
           ref={audioRef}
           src={getFullAudioUrl(currentSong.streamUrl)}
           preload="auto"
-          onLoadStart={() => setIsBuffering(true)}
-          onLoadedData={() => setIsBuffering(false)}
+          onLoadStart={applyCurrentVolume}
+          onLoadedData={applyCurrentVolume}
           onTimeUpdate={handleTimeUpdate}
-          onLoadedMetadata={handleTimeUpdate}
+          onLoadedMetadata={() => {
+            applyCurrentVolume()
+            handleTimeUpdate()
+          }}
           onWaiting={() => setIsBuffering(true)}
-          onPlaying={() => setIsBuffering(false)}
+          onPlaying={() => {
+            applyCurrentVolume()
+            setIsBuffering(false)
+          }}
           onCanPlay={() => {
+            applyCurrentVolume()
             setIsBuffering(false)
             if (isPlaying && audioRef.current && audioRef.current.paused) {
               audioRef.current.play().catch((err) => console.log("Audio autoplay prevented:", err))
