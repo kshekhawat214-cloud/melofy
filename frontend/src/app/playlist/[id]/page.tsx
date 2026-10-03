@@ -12,22 +12,27 @@ import {
   Trash2,
   Edit2,
   Share2,
+  MoreVertical,
 } from "lucide-react"
 import { usePlayerStore } from "@/store/playerStore"
 import { useUIStore } from "@/store/uiStore"
-import { getPlaylist, Playlist, Song, API_BASE, getSongCover } from "@/lib/api"
+import { getPlaylist, Playlist, Song, API_BASE, getSongCover, deletePlaylist } from "@/lib/api"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 
 export default function PlaylistPage({ params }: { params: Promise<{ id: string }> }) {
   const unwrappedParams = use(params)
   const playlistId = unwrappedParams.id
 
   const { currentSong, isPlaying, playSongWithQueue, togglePlay, toggleShuffle, shuffle } = usePlayerStore()
-  const { openContextMenu, openPlaylistModal, likedSongIds, toggleLikeSong, addToast } = useUIStore()
+  const { openContextMenu, openPlaylistModal, likedSongIds, toggleLikeSong, addToast, loadPlaylists } = useUIStore()
+  const router = useRouter()
 
   const [playlist, setPlaylist] = useState<Playlist | null>(null)
   const [loading, setLoading] = useState(true)
   const [showOptionsMenu, setShowOptionsMenu] = useState(false)
+  const [showDeleteModal, setShowDeleteModal] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
 
   useEffect(() => {
     async function loadData() {
@@ -92,18 +97,44 @@ export default function PlaylistPage({ params }: { params: Promise<{ id: string 
 
       <main className="relative z-10 pb-36">
         {/* Playlist Hero Section */}
-        <div className="flex flex-col sm:flex-row items-end px-8 pt-8 pb-6 space-y-4 sm:space-y-0 sm:space-x-6">
-          <div className="w-56 h-56 flex-shrink-0 rounded-lg overflow-hidden shadow-2xl shadow-black/80 bg-[#181818] flex items-center justify-center">
+        <div className="flex flex-col sm:flex-row items-center sm:items-end px-4 sm:px-8 pt-6 sm:pt-8 pb-4 sm:pb-6 space-y-4 sm:space-y-0 sm:space-x-6 text-center sm:text-left">
+          <div
+            onClick={() =>
+              openPlaylistModal({
+                id: playlist.id,
+                name: playlist.name,
+                description: playlist.description,
+                coverUrl: playlist.coverUrl,
+              })
+            }
+            className="w-44 h-44 sm:w-56 sm:h-56 flex-shrink-0 rounded-lg overflow-hidden shadow-2xl shadow-black/80 bg-[#181818] flex items-center justify-center cursor-pointer group/hero relative"
+            title="Click to edit playlist details"
+          >
             {playlist.coverUrl ? (
-              <img src={playlist.coverUrl} className="w-full h-full object-cover" alt="Playlist Cover" />
+              <img src={playlist.coverUrl} className="w-full h-full object-cover group-hover/hero:opacity-80 transition" alt="Playlist Cover" />
             ) : (
               <Music size={60} className="text-[#666]" />
             )}
+            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/hero:opacity-100 flex flex-col items-center justify-center transition-opacity text-white">
+              <Edit2 size={32} />
+              <span className="text-xs font-bold mt-2">Choose photo</span>
+            </div>
           </div>
 
-          <div className="flex flex-col text-white">
-            <span className="text-xs font-bold tracking-wider uppercase mb-1.5">Playlist</span>
-            <h1 className="text-4xl md:text-6xl lg:text-7xl font-black tracking-tight mb-4">
+          <div className="flex flex-col text-white items-center sm:items-start">
+            <span className="text-xs font-bold tracking-wider uppercase mb-1 sm:mb-1.5">Playlist</span>
+            <h1
+              onClick={() =>
+                openPlaylistModal({
+                  id: playlist.id,
+                  name: playlist.name,
+                  description: playlist.description,
+                  coverUrl: playlist.coverUrl,
+                })
+              }
+              className="text-3xl sm:text-5xl md:text-6xl lg:text-7xl font-black tracking-tight mb-2 sm:mb-4 cursor-pointer hover:underline"
+              title="Click to rename playlist"
+            >
               {playlist.name}
             </h1>
             {playlist.description && (
@@ -126,17 +157,17 @@ export default function PlaylistPage({ params }: { params: Promise<{ id: string 
         </div>
 
         {/* Action Row */}
-        <div className="px-8 py-5 flex items-center space-x-6 sticky top-0 z-20 bg-gradient-to-b from-black/40 to-[#121212] backdrop-blur-md">
+        <div className="px-4 sm:px-8 py-3 sm:py-5 flex items-center space-x-4 sm:space-x-6 sticky top-0 z-20 bg-gradient-to-b from-black/60 to-[#121212]/95 backdrop-blur-md">
           <button
             onClick={handlePlayPlaylist}
             disabled={tracks.length === 0}
-            className="w-14 h-14 bg-[#1db954] hover:bg-[#1ed760] text-black rounded-full flex items-center justify-center hover:scale-106 active:scale-95 transition-all shadow-2xl disabled:opacity-40"
+            className="w-12 h-12 sm:w-14 sm:h-14 bg-[#1db954] hover:bg-[#1ed760] text-black rounded-full flex items-center justify-center hover:scale-106 active:scale-95 transition-all shadow-2xl disabled:opacity-40"
             aria-label="Play Playlist"
           >
             {isPlaylistPlaying ? (
-              <Pause fill="currentColor" size={26} />
+              <Pause fill="currentColor" size={24} />
             ) : (
-              <Play fill="currentColor" size={26} className="ml-1" />
+              <Play fill="currentColor" size={24} className="ml-1" />
             )}
           </button>
 
@@ -145,7 +176,7 @@ export default function PlaylistPage({ params }: { params: Promise<{ id: string 
             className={`transition ${shuffle ? "text-[#1db954]" : "text-[#b3b3b3] hover:text-white"}`}
             title="Shuffle"
           >
-            <Shuffle size={26} />
+            <Shuffle size={24} />
           </button>
 
           <div className="relative">
@@ -188,19 +219,75 @@ export default function PlaylistPage({ params }: { params: Promise<{ id: string 
                   <Share2 size={16} />
                   <span>Share</span>
                 </button>
+                <div className="h-[1px] bg-[#383838] my-1" />
+                <button
+                  onClick={() => {
+                    setShowOptionsMenu(false)
+                    setShowDeleteModal(true)
+                  }}
+                  className="w-full text-left px-4 py-2 hover:bg-red-500/20 text-red-400 hover:text-red-300 flex items-center space-x-3 transition-colors"
+                >
+                  <Trash2 size={16} />
+                  <span>Delete playlist</span>
+                </button>
               </div>
             )}
           </div>
         </div>
 
+        {/* Delete Confirmation Modal */}
+        {showDeleteModal && (
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[130] flex items-center justify-center p-4 animate-in fade-in duration-150">
+            <div className="bg-[#282828] w-full max-w-md rounded-xl shadow-2xl p-6 border border-[#3e3e3e] space-y-4">
+              <h3 className="text-xl font-bold text-white">Delete from Your Library?</h3>
+              <p className="text-sm text-[#b3b3b3]">
+                This will delete <span className="font-semibold text-white">&quot;{playlist.name}&quot;</span> from Your Library. This action cannot be undone.
+              </p>
+              <div className="flex justify-end space-x-3 pt-2">
+                <button
+                  onClick={() => setShowDeleteModal(false)}
+                  disabled={isDeleting}
+                  className="px-5 py-2 rounded-full text-sm font-bold text-white hover:bg-white/10 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={async () => {
+                    setIsDeleting(true)
+                    try {
+                      const success = await deletePlaylist(playlist.id)
+                      if (success) {
+                        addToast(`Deleted "${playlist.name}"`)
+                        await loadPlaylists()
+                        router.push("/")
+                      } else {
+                        addToast("Failed to delete playlist", "error")
+                      }
+                    } catch {
+                      addToast("Failed to delete playlist", "error")
+                    } finally {
+                      setIsDeleting(false)
+                      setShowDeleteModal(false)
+                    }
+                  }}
+                  disabled={isDeleting}
+                  className="px-6 py-2 rounded-full text-sm font-bold bg-[#e91429] hover:bg-[#ff2439] text-white hover:scale-105 active:scale-95 transition disabled:opacity-50"
+                >
+                  {isDeleting ? "Deleting..." : "Delete"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Tracklist Table */}
-        <div className="px-8 mt-2">
+        <div className="px-2 sm:px-8 mt-2">
           {/* Table Header */}
-          <div className="grid grid-cols-[16px_minmax(120px,4fr)_minmax(120px,2fr)_minmax(100px,1fr)] gap-4 px-4 py-2.5 border-b border-[#282828] text-[#b3b3b3] text-xs font-bold uppercase tracking-wider mb-2">
+          <div className="grid grid-cols-[16px_minmax(120px,4fr)_minmax(120px,2fr)_minmax(80px,1fr)] sm:grid-cols-[16px_minmax(120px,4fr)_minmax(120px,2fr)_minmax(100px,1fr)] gap-2 sm:gap-4 px-3 sm:px-4 py-2.5 border-b border-[#282828] text-[#b3b3b3] text-xs font-bold uppercase tracking-wider mb-2">
             <div className="text-center">#</div>
             <div>Title</div>
             <div className="hidden sm:block">Album</div>
-            <div className="flex justify-end pr-3">
+            <div className="flex justify-end pr-2 sm:pr-3">
               <Clock3 size={16} />
             </div>
           </div>
@@ -226,7 +313,7 @@ export default function PlaylistPage({ params }: { params: Promise<{ id: string 
                       e.preventDefault()
                       openContextMenu(e.clientX, e.clientY, song, playlist.id)
                     }}
-                    className={`grid grid-cols-[16px_minmax(120px,4fr)_minmax(120px,2fr)_minmax(100px,1fr)] gap-4 px-4 py-2 rounded-md hover:bg-white/10 group items-center cursor-pointer transition-colors ${
+                    className={`grid grid-cols-[16px_minmax(120px,4fr)_minmax(120px,2fr)_minmax(80px,1fr)] sm:grid-cols-[16px_minmax(120px,4fr)_minmax(120px,2fr)_minmax(100px,1fr)] gap-2 sm:gap-4 px-3 sm:px-4 py-2 rounded-md hover:bg-white/10 group items-center cursor-pointer transition-colors ${
                       isCurrent ? "text-[#1db954]" : "text-[#b3b3b3]"
                     }`}
                   >
@@ -250,8 +337,8 @@ export default function PlaylistPage({ params }: { params: Promise<{ id: string 
 
                     {/* Title + Artist */}
                     <div className="flex items-center space-x-3 overflow-hidden">
-                      <img src={cover} className="w-10 h-10 rounded object-cover shadow" alt="" />
-                      <div className="flex flex-col overflow-hidden">
+                      <img src={cover} className="w-10 h-10 rounded object-cover shadow flex-shrink-0" alt="" />
+                      <div className="flex flex-col overflow-hidden min-w-0">
                         <span className={`truncate font-semibold text-sm ${isCurrent ? "text-[#1db954]" : "text-white"}`}>
                           {song.title}
                         </span>
@@ -266,8 +353,8 @@ export default function PlaylistPage({ params }: { params: Promise<{ id: string 
                       {song.album && song.album !== playlist?.name ? song.album : "Single"}
                     </div>
 
-                    {/* Heart + Duration */}
-                    <div className="flex items-center justify-end space-x-4 pr-3 text-xs text-[#b3b3b3] group-hover:text-white">
+                    {/* Heart + Duration + Mobile 3-Dots */}
+                    <div className="flex items-center justify-end space-x-2 sm:space-x-4 pr-1 sm:pr-3 text-xs text-[#b3b3b3] group-hover:text-white">
                       <button
                         onClick={(e) => {
                           e.stopPropagation()
@@ -281,7 +368,18 @@ export default function PlaylistPage({ params }: { params: Promise<{ id: string 
                           color={isLiked ? "#1db954" : "currentColor"}
                         />
                       </button>
-                      <span className="font-mono">{formatDuration(song.duration || 180)}</span>
+                      <span className="font-mono hidden sm:inline">{formatDuration(song.duration || 180)}</span>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          const rect = e.currentTarget.getBoundingClientRect()
+                          openContextMenu(rect.right - 180, rect.bottom, song, playlist.id)
+                        }}
+                        className="p-1 text-[#b3b3b3] hover:text-white sm:hidden"
+                        title="Song options"
+                      >
+                        <MoreVertical size={16} />
+                      </button>
                     </div>
                   </div>
                 )

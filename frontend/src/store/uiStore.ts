@@ -13,6 +13,7 @@ export interface ContextMenuState {
   y: number
   song?: Song
   playlistId?: string
+  playlist?: Playlist
 }
 
 interface UIState {
@@ -36,7 +37,7 @@ interface UIState {
 
   // Context Menu
   contextMenu: ContextMenuState
-  openContextMenu: (x: number, y: number, song?: Song, playlistId?: string) => void
+  openContextMenu: (x: number, y: number, song?: Song, playlistId?: string, playlist?: Playlist) => void
   closeContextMenu: () => void
 
   // Toasts
@@ -80,13 +81,13 @@ export const useUIStore = create<UIState>((set, get) => ({
   closeSettings: () => set({ isSettingsOpen: false }),
 
   contextMenu: { isOpen: false, x: 0, y: 0 },
-  openContextMenu: (x, y, song, playlistId) => {
+  openContextMenu: (x, y, song, playlistId, playlist) => {
     // Keep context menu on screen
     const menuWidth = 240
     const menuHeight = 260
     const boundedX = Math.min(x, window.innerWidth - menuWidth - 10)
     const boundedY = Math.min(y, window.innerHeight - menuHeight - 10)
-    set({ contextMenu: { isOpen: true, x: Math.max(10, boundedX), y: Math.max(10, boundedY), song, playlistId } })
+    set({ contextMenu: { isOpen: true, x: Math.max(10, boundedX), y: Math.max(10, boundedY), song, playlistId, playlist } })
   },
   closeContextMenu: () => set((state) => ({ contextMenu: { ...state.contextMenu, isOpen: false } })),
 

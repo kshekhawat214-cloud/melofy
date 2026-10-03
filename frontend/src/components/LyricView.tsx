@@ -101,40 +101,40 @@ export default function LyricView() {
       />
 
       {/* Header */}
-      <div className="flex items-center justify-between p-8 z-10">
-        <div className="flex items-center space-x-6">
+      <div className="flex items-center justify-between p-4 sm:p-8 z-10">
+        <div className="flex items-center space-x-4 sm:space-x-6 min-w-0">
           <img 
             src={getSongCover(currentSong, 300)} 
-            className="w-20 h-20 rounded-lg shadow-2xl object-cover" 
+            className="w-14 h-14 sm:w-20 sm:h-20 rounded-lg shadow-2xl object-cover flex-shrink-0" 
             alt="" 
           />
-          <div>
-            <h2 className="text-3xl font-bold text-white">{currentSong?.title}</h2>
-            <p className="text-xl text-white/60">{currentSong?.artist}</p>
+          <div className="min-w-0">
+            <h2 className="text-xl sm:text-3xl font-bold text-white truncate">{currentSong?.title}</h2>
+            <p className="text-sm sm:text-xl text-white/60 truncate">{currentSong?.artist}</p>
           </div>
         </div>
         <button 
           onClick={toggleLyrics}
-          className="p-3 bg-white/10 hover:bg-white/20 rounded-full text-white transition-all group"
+          className="p-2.5 sm:p-3 bg-white/10 hover:bg-white/20 rounded-full text-white transition-all group flex-shrink-0 ml-2"
         >
-          <ChevronDown size={32} className="group-hover:translate-y-1 transition-transform" />
+          <ChevronDown size={28} className="group-hover:translate-y-1 transition-transform" />
         </button>
       </div>
 
       {/* Lyrics Flow */}
       <div 
         ref={containerRef}
-        className="flex-grow overflow-y-auto px-8 md:px-[15%] pb-32 scroll-smooth no-scrollbar z-10"
+        className="flex-grow overflow-y-auto px-4 sm:px-8 md:px-[15%] pb-32 scroll-smooth no-scrollbar z-10"
       >
         <div className="h-[20vh]" /> {/* Top padding for center scroll */}
         {lyrics.map((line, i) => (
           <div
             key={i}
-            className={`py-4 text-4xl md:text-6xl font-black transition-all duration-500 cursor-default
+            className={`py-3 sm:py-4 text-2xl sm:text-4xl md:text-6xl font-black transition-all duration-500 cursor-default
               ${i === currentLineIndex 
                 ? "text-white scale-105 opacity-100" 
                 : "text-white/20 hover:text-white/40 scale-100 opacity-100"}
-              ${line.time === -1 && "text-2xl md:text-3xl py-2 font-medium"}
+              ${line.time === -1 && "text-lg sm:text-2xl md:text-3xl py-1.5 sm:py-2 font-medium"}
             `}
           >
             {line.text}

@@ -1,8 +1,9 @@
 "use client"
 import { useState, useEffect } from "react"
 import { useUIStore } from "@/store/uiStore"
-import { createPlaylist, updatePlaylist } from "@/lib/api"
-import { X, Music } from "lucide-react"
+import { createPlaylist, updatePlaylist, deletePlaylist } from "@/lib/api"
+import { X, Music, Trash2 } from "lucide-react"
+import { useRouter } from "next/navigation"
 
 const PRESET_COVERS = [
   "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=400&q=80",
@@ -14,11 +15,13 @@ const PRESET_COVERS = [
 ]
 
 export default function PlaylistModal() {
+  const router = useRouter()
   const { isPlaylistModalOpen, playlistModalData, closePlaylistModal, loadPlaylists, addToast } = useUIStore()
   const [name, setName] = useState("")
   const [description, setDescription] = useState("")
   const [coverUrl, setCoverUrl] = useState("")
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
 
   const isEditing = Boolean(playlistModalData?.id)
 
@@ -132,21 +135,56 @@ export default function PlaylistModal() {
           </div>
 
           {/* Action Row */}
-          <div className="flex justify-end space-x-3 pt-2">
-            <button
-              type="button"
-              onClick={closePlaylistModal}
-              className="px-5 py-2 rounded-full text-sm font-bold text-white hover:bg-white/10 transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={isSubmitting || !name.trim()}
-              className="px-7 py-2.5 rounded-full text-sm font-bold bg-[#1db954] hover:bg-[#1ed760] text-black hover:scale-105 active:scale-95 transition disabled:opacity-50 disabled:scale-100"
-            >
-              {isSubmitting ? "Saving..." : "Save"}
-            </button>
+          <div className="flex items-center justify-between pt-2">
+            {isEditing && playlistModalData?.id ? (
+              <button
+                type="button"
+                onClick={async () => {
+                  const confirmed = window.confirm(`Delete "${name || "this playlist"}" from Your Library? This cannot be undone.`)
+                  if (!confirmed) return
+                  setIsDeleting(true)
+                  try {
+                    const ok = await deletePlaylist(playlistModalData.id!)
+                    if (ok) {
+                      addToast(`Deleted "${name || "playlist"}"`)
+                      await loadPlaylists()
+                      closePlaylistModal()
+                      if (window.location.pathname.includes(playlistModalData.id!)) {
+                        router.push("/")
+                      }
+                    } else {
+                      addToast("Failed to delete playlist", "error")
+                    }
+                  } catch {
+                    addToast("Failed to delete playlist", "error")
+                  } finally {
+                    setIsDeleting(false)
+                  }
+                }}
+                disabled={isDeleting}
+                className="text-xs font-semibold text-red-400 hover:text-red-300 hover:underline flex items-center space-x-1.5 transition disabled:opacity-50"
+              >
+                <Trash2 size={15} />
+                <span>{isDeleting ? "Deleting..." : "Delete playlist"}</span>
+              </button>
+            ) : <div />}
+
+            <div className="flex space-x-3">
+              <button
+                type="button"
+                onClick={closePlaylistModal}
+                className="px-5 py-2 rounded-full text-sm font-bold text-white hover:bg-white/10 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={isSubmitting || !name.trim()}
+                className="px-7 py-2.5 rounded-full text-sm font-bold bg-[#1db954] hover:bg-[#1ed760] text-black hover:scale-105 active:scale-95 transition disabled:opacity-50 disabled:scale-100"
+              >
+                {isSubmitting ? "Saving..." : "Save"}
+              </button>
+            </div>
           </div>
         </form>
       </div>

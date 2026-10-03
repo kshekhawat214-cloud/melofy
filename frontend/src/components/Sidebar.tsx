@@ -1,13 +1,15 @@
 "use client"
 import { useEffect, useState, useRef } from "react"
-import { Home, Search, Library, Plus, ArrowRight, Download, Volume2, Search as SearchIcon, X, Music } from "lucide-react"
+import { Home, Search, Library, Plus, ArrowRight, Download, Volume2, Search as SearchIcon, X, Music, MoreHorizontal } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useUIStore } from "@/store/uiStore"
 import { usePlayerStore } from "@/store/playerStore"
+import { useBreakpoint } from "@/hooks/useBreakpoint"
 
 export default function Sidebar() {
   const pathname = usePathname()
+  const { isTablet } = useBreakpoint()
   const {
     sidebarWidth,
     setSidebarWidth,
@@ -15,6 +17,7 @@ export default function Sidebar() {
     toggleSidebarCollapsed,
     openImportModal,
     openPlaylistModal,
+    openContextMenu,
     playlists,
     loadPlaylists,
     likedSongIds,
@@ -22,6 +25,9 @@ export default function Sidebar() {
   } = useUIStore()
 
   const { currentSong, isPlaying } = usePlayerStore()
+
+  const isEffectiveCollapsed = isSidebarCollapsed || isTablet
+  const effectiveWidth = isEffectiveCollapsed ? 72 : sidebarWidth
 
   const [activeFilter, setActiveFilter] = useState<"all" | "playlists" | "artists">("all")
   const [librarySearch, setLibrarySearch] = useState("")
@@ -39,7 +45,7 @@ export default function Sidebar() {
   // Drag resizing
   useEffect(() => {
     function handleMouseMove(e: MouseEvent) {
-      if (!isResizing.current) return
+      if (!isResizing.current || isTablet) return
       setSidebarWidth(e.clientX)
     }
     function handleMouseUp() {
@@ -55,7 +61,7 @@ export default function Sidebar() {
       window.removeEventListener("mousemove", handleMouseMove)
       window.removeEventListener("mouseup", handleMouseUp)
     }
-  }, [setSidebarWidth])
+  }, [setSidebarWidth, isTablet])
 
   const filteredPlaylists = playlists.filter((pl) =>
     pl.name.toLowerCase().includes(librarySearch.toLowerCase())
@@ -63,7 +69,7 @@ export default function Sidebar() {
 
   return (
     <div
-      style={{ width: `${sidebarWidth}px` }}
+      style={{ width: `${effectiveWidth}px` }}
       suppressHydrationWarning
       className="relative flex-shrink-0 flex flex-col h-[calc(100vh-90px)] select-none space-y-2"
     >
@@ -73,19 +79,19 @@ export default function Sidebar() {
           href="/"
           className={`flex items-center space-x-5 transition-colors ${
             pathname === "/" ? "text-white font-bold" : "text-[#b3b3b3] hover:text-white"
-          }`}
+          } ${isEffectiveCollapsed ? "justify-center" : ""}`}
         >
           <Home size={24} strokeWidth={pathname === "/" ? 2.8 : 2} />
-          {!isSidebarCollapsed && <span className="text-sm font-bold">Home</span>}
+          {!isEffectiveCollapsed && <span className="text-sm font-bold">Home</span>}
         </Link>
         <Link
           href="/search"
           className={`flex items-center space-x-5 transition-colors ${
             pathname.startsWith("/search") ? "text-white font-bold" : "text-[#b3b3b3] hover:text-white"
-          }`}
+          } ${isEffectiveCollapsed ? "justify-center" : ""}`}
         >
           <Search size={24} strokeWidth={pathname.startsWith("/search") ? 2.8 : 2} />
-          {!isSidebarCollapsed && <span className="text-sm font-bold">Search</span>}
+          {!isEffectiveCollapsed && <span className="text-sm font-bold">Search</span>}
         </Link>
       </div>
 
@@ -99,10 +105,10 @@ export default function Sidebar() {
             title="Collapse or expand Your Library"
           >
             <Library size={24} strokeWidth={2} />
-            {!isSidebarCollapsed && <span className="font-bold text-sm">Your Library</span>}
+            {!isEffectiveCollapsed && <span className="font-bold text-sm">Your Library</span>}
           </button>
 
-          {!isSidebarCollapsed && (
+          {!isEffectiveCollapsed && (
             <div className="flex items-center space-x-1 relative">
               {/* Plus Menu Button */}
               <button
@@ -154,7 +160,7 @@ export default function Sidebar() {
         </div>
 
         {/* Filter Chips & Library Search */}
-        {!isSidebarCollapsed && (
+        {!isEffectiveCollapsed && (
           <div className="px-4 py-2 space-y-2">
             <div className="flex items-center space-x-2">
               <button
@@ -222,13 +228,13 @@ export default function Sidebar() {
             href="/liked"
             className={`w-full flex items-center p-2 rounded-md hover:bg-[#1a1a1a] transition-colors group ${
               pathname === "/liked" ? "bg-[#282828]" : ""
-            } ${isSidebarCollapsed ? "justify-center" : "space-x-3"}`}
+            } ${isEffectiveCollapsed ? "justify-center" : "space-x-3"}`}
             title="Liked Songs"
           >
             <div className="w-12 h-12 flex-shrink-0 bg-gradient-to-br from-indigo-600 via-purple-600 to-blue-400 rounded-md flex items-center justify-center shadow-lg">
               <span className="text-white text-lg">❤️</span>
             </div>
-            {!isSidebarCollapsed && (
+            {!isEffectiveCollapsed && (
               <div className="flex flex-col items-start overflow-hidden">
                 <span className={`font-semibold text-sm truncate ${pathname === "/liked" ? "text-[#1db954]" : "text-white"}`}>
                   Liked Songs
@@ -242,52 +248,79 @@ export default function Sidebar() {
 
           {/* User Playlists */}
           {filteredPlaylists.map((pl) => (
-            <Link
+            <div
               key={pl.id}
-              href={`/playlist/${pl.id}`}
-              className={`w-full flex items-center p-2 rounded-md hover:bg-[#1a1a1a] transition-colors group ${
-                pathname === `/playlist/${pl.id}` ? "bg-[#282828]" : ""
-              } ${isSidebarCollapsed ? "justify-center" : "space-x-3"}`}
-              title={pl.name}
+              onContextMenu={(e) => {
+                e.preventDefault()
+                openContextMenu(e.clientX, e.clientY, undefined, undefined, pl)
+              }}
+              className="relative group/pl w-full"
             >
-              <div className="w-12 h-12 flex-shrink-0 rounded-md overflow-hidden bg-[#242424] flex items-center justify-center shadow">
-                {pl.coverUrl ? (
-                  <img src={pl.coverUrl} alt="" className="w-full h-full object-cover" />
-                ) : (
-                  <Music size={20} className="text-[#6a6a6a]" />
-                )}
-              </div>
-              {!isSidebarCollapsed && (
-                <div className="flex flex-col items-start overflow-hidden flex-1">
-                  <div className="flex items-center space-x-1.5 w-full">
-                    <span
-                      className={`font-semibold text-sm truncate text-left ${
-                        pathname === `/playlist/${pl.id}` ? "text-[#1db954]" : "text-white group-hover:text-white"
-                      }`}
-                    >
-                      {pl.name}
-                    </span>
-                    {isPlaying && currentSong && (
-                      <Volume2 size={14} className="text-[#1db954] flex-shrink-0 animate-pulse" />
-                    )}
-                  </div>
-                  <span className="text-[#b3b3b3] text-xs truncate">Playlist • {pl.owner || "Guest"}</span>
+              <Link
+                href={`/playlist/${pl.id}`}
+                className={`w-full flex items-center p-2 rounded-md hover:bg-[#1a1a1a] transition-colors group ${
+                  pathname === `/playlist/${pl.id}` ? "bg-[#282828]" : ""
+                } ${isEffectiveCollapsed ? "justify-center" : "space-x-3"}`}
+                title={pl.name}
+              >
+                <div className="w-12 h-12 flex-shrink-0 rounded-md overflow-hidden bg-[#242424] flex items-center justify-center shadow">
+                  {pl.coverUrl ? (
+                    <img src={pl.coverUrl} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    <Music size={20} className="text-[#6a6a6a]" />
+                  )}
                 </div>
+                {!isEffectiveCollapsed && (
+                  <div className="flex flex-col items-start overflow-hidden flex-1 pr-6">
+                    <div className="flex items-center space-x-1.5 w-full">
+                      <span
+                        className={`font-semibold text-sm truncate text-left ${
+                          pathname === `/playlist/${pl.id}` ? "text-[#1db954]" : "text-white group-hover:text-white"
+                        }`}
+                      >
+                        {pl.name}
+                      </span>
+                      {isPlaying && currentSong && (
+                        <Volume2 size={14} className="text-[#1db954] flex-shrink-0 animate-pulse" />
+                      )}
+                    </div>
+                    <span className="text-[#b3b3b3] text-xs truncate">Playlist • {pl.owner || "Guest"}</span>
+                  </div>
+                )}
+              </Link>
+
+              {/* 3-dots options button on hover */}
+              {!isEffectiveCollapsed && (
+                <button
+                  onClick={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    const rect = e.currentTarget.getBoundingClientRect()
+                    openContextMenu(rect.right, rect.bottom, undefined, undefined, pl)
+                  }}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover/pl:opacity-100 p-1.5 hover:bg-[#333] text-[#b3b3b3] hover:text-white rounded-full transition-opacity z-10"
+                  title="More playlist options"
+                >
+                  <MoreHorizontal size={16} />
+                </button>
               )}
-            </Link>
+            </div>
           ))}
         </div>
       </div>
 
-      {/* Resize Handle */}
-      <div
-        onMouseDown={() => {
-          isResizing.current = true
-          document.body.style.cursor = "col-resize"
-          document.body.style.userSelect = "none"
-        }}
-        className="absolute top-0 right-0 w-1.5 h-full cursor-col-resize hover:bg-[#1db954]/50 active:bg-[#1db954] transition-colors z-20"
-      />
+      {/* Resize Handle (Hidden on Tablet) */}
+      {!isTablet && (
+        <div
+          onMouseDown={() => {
+            isResizing.current = true
+            document.body.style.cursor = "col-resize"
+            document.body.style.userSelect = "none"
+          }}
+          className="absolute top-0 right-0 w-1.5 h-full cursor-col-resize hover:bg-[#1db954]/50 active:bg-[#1db954] transition-colors z-20"
+        />
+      )}
     </div>
   )
 }
+

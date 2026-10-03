@@ -2,8 +2,8 @@
 import { useEffect, useRef, useState } from "react"
 import { useUIStore } from "@/store/uiStore"
 import { usePlayerStore } from "@/store/playerStore"
-import { addTrackToPlaylist, removeTrackFromPlaylist } from "@/lib/api"
-import { Plus, ListPlus, Heart, Share2, User, Disc, Trash2, ChevronRight, Play } from "lucide-react"
+import { addTrackToPlaylist, removeTrackFromPlaylist, deletePlaylist } from "@/lib/api"
+import { Plus, ListPlus, Heart, Share2, User, Disc, Trash2, ChevronRight, Play, Edit2 } from "lucide-react"
 import { useRouter } from "next/navigation"
 
 export default function ContextMenu() {
@@ -32,7 +32,96 @@ export default function ContextMenu() {
     }
   }, [contextMenu.isOpen, closeContextMenu])
 
-  if (!contextMenu.isOpen || !contextMenu.song) return null
+  if (!contextMenu.isOpen) return null
+
+  // --- PLAYLIST CONTEXT MENU ---
+  if (contextMenu.playlist && !contextMenu.song) {
+    const pl = contextMenu.playlist
+
+    const handleDeletePlaylist = async () => {
+      closeContextMenu()
+      const confirmed = window.confirm(`Delete "${pl.name}" from Your Library? This cannot be undone.`)
+      if (!confirmed) return
+      try {
+        const ok = await deletePlaylist(pl.id)
+        if (ok) {
+          addToast(`Deleted "${pl.name}"`)
+          await loadPlaylists()
+          if (window.location.pathname.includes(pl.id)) {
+            router.push("/")
+          }
+        } else {
+          addToast("Failed to delete playlist", "error")
+        }
+      } catch {
+        addToast("Failed to delete playlist", "error")
+      }
+    }
+
+    const handleEditPlaylist = () => {
+      closeContextMenu()
+      openPlaylistModal({
+        id: pl.id,
+        name: pl.name,
+        description: pl.description,
+        coverUrl: pl.coverUrl,
+      })
+    }
+
+    const handleCopyPlaylistLink = () => {
+      const link = `${window.location.origin}/playlist/${pl.id}`
+      navigator.clipboard.writeText(link)
+      addToast("Playlist link copied to clipboard")
+      closeContextMenu()
+    }
+
+    return (
+      <div
+        ref={menuRef}
+        style={{ top: `${contextMenu.y}px`, left: `${contextMenu.x}px` }}
+        className="fixed z-[120] w-56 bg-[#282828] border border-[#383838] rounded-md shadow-2xl py-1 text-sm text-[#e0e0e0] font-normal animate-in fade-in duration-100 select-none"
+      >
+        <button
+          onClick={() => {
+            router.push(`/playlist/${pl.id}`)
+            closeContextMenu()
+          }}
+          className="w-full text-left px-3 py-2 hover:bg-[#3e3e3e] hover:text-white flex items-center space-x-3 transition-colors"
+        >
+          <Play size={16} />
+          <span>Open playlist</span>
+        </button>
+
+        <button
+          onClick={handleEditPlaylist}
+          className="w-full text-left px-3 py-2 hover:bg-[#3e3e3e] hover:text-white flex items-center space-x-3 transition-colors"
+        >
+          <Edit2 size={16} />
+          <span>Edit details / Rename</span>
+        </button>
+
+        <button
+          onClick={handleCopyPlaylistLink}
+          className="w-full text-left px-3 py-2 hover:bg-[#3e3e3e] hover:text-white flex items-center space-x-3 transition-colors"
+        >
+          <Share2 size={16} />
+          <span>Copy link to playlist</span>
+        </button>
+
+        <div className="h-[1px] bg-[#3e3e3e] my-1" />
+
+        <button
+          onClick={handleDeletePlaylist}
+          className="w-full text-left px-3 py-2 hover:bg-red-500/20 text-red-400 hover:text-red-300 flex items-center space-x-3 transition-colors"
+        >
+          <Trash2 size={16} />
+          <span>Delete playlist</span>
+        </button>
+      </div>
+    )
+  }
+
+  if (!contextMenu.song) return null
 
   const song = contextMenu.song
   const isLiked = likedSongIds.has(song.id)

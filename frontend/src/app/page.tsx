@@ -40,13 +40,13 @@ function SongCard({ song, shelfSongs }: { song: Song; shelfSongs: Song[] }) {
           loading="lazy"
         />
 
-        {/* Hover Floating Play Button */}
+        {/* Floating Play Button (Always visible on mobile, hover-reveal on desktop) */}
         <button
           onClick={handlePlayClick}
           className={`absolute bottom-2 right-2 w-11 h-11 bg-[#1db954] hover:bg-[#1ed760] text-black rounded-full shadow-2xl flex items-center justify-center transition-all duration-300 hover:scale-106 ${
             isCurrent && isPlaying
               ? "opacity-100 translate-y-0"
-              : "opacity-0 translate-y-3 group-hover:opacity-100 group-hover:translate-y-0"
+              : "opacity-100 md:opacity-0 translate-y-0 md:translate-y-3 md:group-hover:opacity-100 md:group-hover:translate-y-0"
           }`}
           aria-label={`Play ${song.title}`}
         >
@@ -159,12 +159,12 @@ export default function Home() {
               </span>
             </div>
 
-            <div className="flex space-x-5 overflow-x-auto pb-2 scrollbar-hidden">
+            <div className="flex space-x-4 sm:space-x-5 overflow-x-auto pb-2 scrollbar-hidden snap-x snap-mandatory">
               {playlists.map((pl) => (
                 <Link
                   key={pl.id}
                   href={`/playlist/${pl.id}`}
-                  className="bg-[#181818] hover:bg-[#282828] p-3.5 rounded-lg transition-all duration-300 group cursor-pointer flex flex-col flex-shrink-0 w-44"
+                  className="bg-[#181818] hover:bg-[#282828] p-3.5 rounded-lg transition-all duration-300 group cursor-pointer flex flex-col flex-shrink-0 w-44 snap-start"
                 >
                   <div className="relative mb-3 pb-[100%] rounded-md overflow-hidden shadow-lg bg-[#222]">
                     <img
@@ -172,7 +172,7 @@ export default function Home() {
                       className="absolute inset-0 w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
                       alt={pl.name}
                     />
-                    <div className="absolute bottom-2 right-2 w-11 h-11 bg-[#1db954] text-black rounded-full shadow-2xl flex items-center justify-center opacity-0 translate-y-3 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-300 hover:scale-106">
+                    <div className="absolute bottom-2 right-2 w-11 h-11 bg-[#1db954] text-black rounded-full shadow-2xl flex items-center justify-center opacity-100 md:opacity-0 translate-y-0 md:translate-y-3 md:group-hover:opacity-100 md:group-hover:translate-y-0 transition-all duration-300 hover:scale-106">
                       <Play fill="currentColor" size={20} className="ml-0.5" />
                     </div>
                   </div>
@@ -200,9 +200,11 @@ export default function Home() {
                 </span>
               </div>
 
-              <div className="flex space-x-5 overflow-x-auto pb-2 scrollbar-hidden">
+              <div className="flex space-x-4 sm:space-x-5 overflow-x-auto pb-2 scrollbar-hidden snap-x snap-mandatory">
                 {shelf.songs.map((song) => (
-                  <SongCard key={song.id} song={song} shelfSongs={shelf.songs} />
+                  <div key={song.id} className="snap-start flex-shrink-0">
+                    <SongCard song={song} shelfSongs={shelf.songs} />
+                  </div>
                 ))}
               </div>
             </section>

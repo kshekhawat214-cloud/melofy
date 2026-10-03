@@ -1,7 +1,7 @@
 "use client"
 import { useEffect, useState } from "react"
 import Header from "@/components/Header"
-import { Play, Pause, Clock3, Heart, Shuffle } from "lucide-react"
+import { Play, Pause, Clock3, Heart, Shuffle, MoreVertical } from "lucide-react"
 import { usePlayerStore } from "@/store/playerStore"
 import { useUIStore } from "@/store/uiStore"
 import { getLikedSongs, Song, API_BASE, getSongCover } from "@/lib/api"
@@ -69,14 +69,14 @@ export default function LikedSongsPage() {
 
       <main className="relative z-10 pb-36">
         {/* Header Hero */}
-        <div className="flex flex-col sm:flex-row items-end px-8 pt-8 pb-6 space-y-4 sm:space-y-0 sm:space-x-6">
-          <div className="w-56 h-56 flex-shrink-0 rounded-lg overflow-hidden shadow-2xl shadow-black/80 bg-gradient-to-br from-indigo-600 via-purple-600 to-blue-400 flex items-center justify-center">
-            <span className="text-white text-7xl">❤️</span>
+        <div className="flex flex-col sm:flex-row items-center sm:items-end px-4 sm:px-8 pt-6 sm:pt-8 pb-4 sm:pb-6 space-y-4 sm:space-y-0 sm:space-x-6 text-center sm:text-left">
+          <div className="w-44 h-44 sm:w-56 sm:h-56 flex-shrink-0 rounded-lg overflow-hidden shadow-2xl shadow-black/80 bg-gradient-to-br from-indigo-600 via-purple-600 to-blue-400 flex items-center justify-center">
+            <span className="text-white text-6xl sm:text-7xl">❤️</span>
           </div>
 
-          <div className="flex flex-col text-white">
-            <span className="text-xs font-bold tracking-wider uppercase mb-1.5">Playlist</span>
-            <h1 className="text-5xl md:text-7xl lg:text-8xl font-black tracking-tight mb-4">
+          <div className="flex flex-col text-white items-center sm:items-start">
+            <span className="text-xs font-bold tracking-wider uppercase mb-1 sm:mb-1.5">Playlist</span>
+            <h1 className="text-4xl sm:text-6xl md:text-7xl lg:text-8xl font-black tracking-tight mb-2 sm:mb-4">
               Liked Songs
             </h1>
             <div className="flex items-center text-sm font-semibold space-x-2 text-[#b3b3b3]">
@@ -94,17 +94,17 @@ export default function LikedSongsPage() {
         </div>
 
         {/* Action Row */}
-        <div className="px-8 py-5 flex items-center space-x-6 sticky top-0 z-20 bg-gradient-to-b from-black/40 to-[#121212] backdrop-blur-md">
+        <div className="px-4 sm:px-8 py-3 sm:py-5 flex items-center space-x-4 sm:space-x-6 sticky top-0 z-20 bg-gradient-to-b from-black/60 to-[#121212]/95 backdrop-blur-md">
           <button
             onClick={handlePlayLiked}
             disabled={songs.length === 0}
-            className="w-14 h-14 bg-[#1db954] hover:bg-[#1ed760] text-black rounded-full flex items-center justify-center hover:scale-106 active:scale-95 transition-all shadow-2xl disabled:opacity-40"
+            className="w-12 h-12 sm:w-14 sm:h-14 bg-[#1db954] hover:bg-[#1ed760] text-black rounded-full flex items-center justify-center hover:scale-106 active:scale-95 transition-all shadow-2xl disabled:opacity-40"
             aria-label="Play Liked Songs"
           >
             {isPlayingLiked ? (
-              <Pause fill="currentColor" size={26} />
+              <Pause fill="currentColor" size={24} />
             ) : (
-              <Play fill="currentColor" size={26} className="ml-1" />
+              <Play fill="currentColor" size={24} className="ml-1" />
             )}
           </button>
 
@@ -113,18 +113,18 @@ export default function LikedSongsPage() {
             className={`transition ${shuffle ? "text-[#1db954]" : "text-[#b3b3b3] hover:text-white"}`}
             title="Shuffle"
           >
-            <Shuffle size={26} />
+            <Shuffle size={24} />
           </button>
         </div>
 
         {/* Tracklist Table */}
-        <div className="px-8 mt-2">
+        <div className="px-2 sm:px-8 mt-2">
           {/* Table Header */}
-          <div className="grid grid-cols-[16px_minmax(120px,4fr)_minmax(120px,2fr)_minmax(100px,1fr)] gap-4 px-4 py-2.5 border-b border-[#282828] text-[#b3b3b3] text-xs font-bold uppercase tracking-wider mb-2">
+          <div className="grid grid-cols-[16px_minmax(120px,4fr)_minmax(120px,2fr)_minmax(80px,1fr)] sm:grid-cols-[16px_minmax(120px,4fr)_minmax(120px,2fr)_minmax(100px,1fr)] gap-2 sm:gap-4 px-3 sm:px-4 py-2.5 border-b border-[#282828] text-[#b3b3b3] text-xs font-bold uppercase tracking-wider mb-2">
             <div className="text-center">#</div>
             <div>Title</div>
             <div className="hidden sm:block">Album</div>
-            <div className="flex justify-end pr-3">
+            <div className="flex justify-end pr-2 sm:pr-3">
               <Clock3 size={16} />
             </div>
           </div>
@@ -157,7 +157,7 @@ export default function LikedSongsPage() {
                       e.preventDefault()
                       openContextMenu(e.clientX, e.clientY, song)
                     }}
-                    className={`grid grid-cols-[16px_minmax(120px,4fr)_minmax(120px,2fr)_minmax(100px,1fr)] gap-4 px-4 py-2 rounded-md hover:bg-white/10 group items-center cursor-pointer transition-colors ${
+                    className={`grid grid-cols-[16px_minmax(120px,4fr)_minmax(120px,2fr)_minmax(80px,1fr)] sm:grid-cols-[16px_minmax(120px,4fr)_minmax(120px,2fr)_minmax(100px,1fr)] gap-2 sm:gap-4 px-3 sm:px-4 py-2 rounded-md hover:bg-white/10 group items-center cursor-pointer transition-colors ${
                       isCurrent ? "text-[#1db954]" : "text-[#b3b3b3]"
                     }`}
                   >
@@ -181,8 +181,8 @@ export default function LikedSongsPage() {
 
                     {/* Title + Artist */}
                     <div className="flex items-center space-x-3 overflow-hidden">
-                      <img src={cover} className="w-10 h-10 rounded object-cover shadow" alt="" />
-                      <div className="flex flex-col overflow-hidden">
+                      <img src={cover} className="w-10 h-10 rounded object-cover shadow flex-shrink-0" alt="" />
+                      <div className="flex flex-col overflow-hidden min-w-0">
                         <span className={`truncate font-semibold text-sm ${isCurrent ? "text-[#1db954]" : "text-white"}`}>
                           {song.title}
                         </span>
@@ -197,8 +197,8 @@ export default function LikedSongsPage() {
                       {song.album || "Single"}
                     </div>
 
-                    {/* Heart + Duration */}
-                    <div className="flex items-center justify-end space-x-4 pr-3 text-xs text-[#b3b3b3] group-hover:text-white">
+                    {/* Heart + Duration + Mobile 3-Dots */}
+                    <div className="flex items-center justify-end space-x-2 sm:space-x-4 pr-1 sm:pr-3 text-xs text-[#b3b3b3] group-hover:text-white">
                       <button
                         onClick={(e) => {
                           e.stopPropagation()
@@ -208,7 +208,18 @@ export default function LikedSongsPage() {
                       >
                         <Heart size={16} fill="#1db954" color="#1db954" />
                       </button>
-                      <span className="font-mono">{formatDuration(song.duration || 180)}</span>
+                      <span className="font-mono hidden sm:inline">{formatDuration(song.duration || 180)}</span>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          const rect = e.currentTarget.getBoundingClientRect()
+                          openContextMenu(rect.right - 180, rect.bottom, song)
+                        }}
+                        className="p-1 text-[#b3b3b3] hover:text-white sm:hidden"
+                        title="Song options"
+                      >
+                        <MoreVertical size={16} />
+                      </button>
                     </div>
                   </div>
                 )
