@@ -70,7 +70,7 @@ def options_stream_audio(song_id: str):
     return Response(status_code=204, headers=STREAM_HEADERS)
 
 
-@router.get("/songs/{song_id}/stream")
+@router.api_route("/songs/{song_id}/stream", methods=["GET", "HEAD"])
 async def stream_audio(song_id: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     """
     Streams the audio file with instant sub-second response times.

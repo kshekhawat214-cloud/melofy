@@ -112,7 +112,6 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
 
   setCurrentSong: (song) => {
     set({ currentSong: song, isPlaying: true, progress: 0 })
-    recordInteraction("1", song.id, "PLAY")
   },
 
   setIsPlaying: (isPlaying) => set({ isPlaying }),
@@ -145,8 +144,6 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       isPlaying: true,
       progress: 0,
     })
-
-    recordInteraction("1", song.id, "PLAY")
   },
 
   playNext: () => {
@@ -168,7 +165,6 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         isPlaying: true,
         progress: 0,
       })
-      recordInteraction("1", nextSong.id, "PLAY")
     } else if (repeatMode === 'all') {
       // Wrap around
       const firstSong = queue[0]
@@ -178,7 +174,6 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         isPlaying: true,
         progress: 0,
       })
-      recordInteraction("1", firstSong.id, "PLAY")
     } else {
       set({ isPlaying: false, progress: 0 })
     }
@@ -201,7 +196,6 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         isPlaying: true,
         progress: 0,
       })
-      recordInteraction("1", prevSong.id, "PLAY")
     } else {
       set({ progress: 0 })
     }
