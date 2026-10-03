@@ -69,17 +69,22 @@ function SongCard({ song, shelfSongs }: { song: Song; shelfSongs: Song[] }) {
   )
 }
 
+let cachedShelves: Shelf[] = []
+let cachedPlaylists: Playlist[] = []
+
 export default function Home() {
   const { currentSong, isPlaying, playSongWithQueue, togglePlay } = usePlayerStore()
   const { user } = useAuthStore()
-  const [shelves, setShelves] = useState<Shelf[]>([])
-  const [playlists, setPlaylists] = useState<Playlist[]>([])
-  const [loading, setLoading] = useState(true)
+  const [shelves, setShelves] = useState<Shelf[]>(cachedShelves)
+  const [playlists, setPlaylists] = useState<Playlist[]>(cachedPlaylists)
+  const [loading, setLoading] = useState(cachedShelves.length === 0)
 
   const loadData = useCallback(async () => {
     try {
       const uid = user?.id || "1"
       const [feed, pls] = await Promise.all([getHomeFeed(uid), getPlaylists(uid)])
+      cachedShelves = feed
+      cachedPlaylists = pls
       setShelves(feed)
       setPlaylists(pls)
     } finally {
@@ -105,7 +110,7 @@ export default function Home() {
   // Deduplicate for quick-access tiles
   const quickAccessSongs = Array.from(new Map(allSongs.map((s) => [s.id, s])).values()).slice(0, 8)
 
-  if (loading) {
+  if (loading && shelves.length === 0) {
     return (
       <div className="flex-1 flex items-center justify-center bg-[#121212] h-full">
         <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-[#1db954]" />
@@ -114,7 +119,7 @@ export default function Home() {
   }
 
   return (
-    <div className="flex-1 overflow-y-auto bg-gradient-to-b from-[#1e3264]/60 via-[#121212] to-[#121212] h-full relative scroll-smooth text-white scrollbar-hidden">
+    <div id="main-scroll-container" className="flex-1 overflow-y-auto bg-gradient-to-b from-[#1e3264]/60 via-[#121212] to-[#121212] h-full relative scroll-smooth text-white scrollbar-hidden">
       <Header />
 
       <main className="p-6 pb-36 space-y-8">

@@ -76,6 +76,8 @@ function shuffleArray<T>(array: T[], preserveFirstItem?: T): T[] {
   return arr
 }
 
+let lastProgressSaveTime = 0
+
 export const usePlayerStore = create<PlayerState>((set, get) => ({
   currentSong: null,
   isPlaying: false,
@@ -101,17 +103,72 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       const s = localStorage.getItem('tunely_shuffle')
       const r = localStorage.getItem('tunely_repeat')
       const rs = localStorage.getItem('tunely_right_sidebar')
+
+      const savedSongStr = localStorage.getItem('melofy_current_song')
+      const savedQueueStr = localStorage.getItem('melofy_queue')
+      const savedQueueIdx = localStorage.getItem('melofy_queue_index')
+      const savedProgress = localStorage.getItem('melofy_last_progress')
+
+      let restoredSong: Song | null = null
+      let restoredQueue: Song[] = []
+      let restoredIndex = 0
+      let restoredProgress = 0
+
+      if (savedSongStr) {
+        try {
+          restoredSong = JSON.parse(savedSongStr)
+        } catch {}
+      }
+      if (savedQueueStr) {
+        try {
+          restoredQueue = JSON.parse(savedQueueStr)
+        } catch {}
+      }
+      if (savedQueueIdx !== null) {
+        try {
+          restoredIndex = Number(JSON.parse(savedQueueIdx)) || 0
+        } catch {
+          restoredIndex = Number(savedQueueIdx) || 0
+        }
+      }
+      if (savedProgress !== null) {
+        try {
+          restoredProgress = Number(JSON.parse(savedProgress)) || 0
+        } catch {
+          restoredProgress = Number(savedProgress) || 0
+        }
+      }
+
       set({
+        ...(restoredSong
+          ? {
+              currentSong: restoredSong,
+              isPlaying: false, // Start paused on initial session restore
+              progress: restoredProgress,
+              duration: restoredSong.duration || 0,
+            }
+          : {}),
+        ...(restoredQueue && restoredQueue.length > 0
+          ? {
+              queue: restoredQueue,
+              originalQueue: restoredQueue,
+              queueIndex: restoredIndex,
+            }
+          : {}),
         ...(v !== null ? { volume: Number(JSON.parse(v)) } : {}),
         ...(s !== null ? { shuffle: Boolean(JSON.parse(s)) } : {}),
         ...(r !== null ? { repeatMode: JSON.parse(r) } : {}),
         ...(rs !== null ? { isRightSidebarOpen: Boolean(JSON.parse(rs)) } : {}),
       })
-    } catch {}
+    } catch (e) {
+      console.warn("Player storage restoration note:", e)
+    }
   },
 
   setCurrentSong: (song) => {
-    set({ currentSong: song, isPlaying: true, progress: 0 })
+    set({ currentSong: song, isPlaying: true, progress: 0, duration: song.duration || 0 })
+    setStorage('melofy_current_song', song)
+    setStorage('melofy_last_progress', 0)
   },
 
   setIsPlaying: (isPlaying) => set({ isPlaying }),
@@ -143,7 +200,13 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       queueIndex: shuffle ? 0 : effectiveIdx,
       isPlaying: true,
       progress: 0,
+      duration: song.duration || 0,
     })
+
+    setStorage('melofy_current_song', song)
+    setStorage('melofy_queue', rawQueue)
+    setStorage('melofy_queue_index', shuffle ? 0 : effectiveIdx)
+    setStorage('melofy_last_progress', 0)
   },
 
   playNext: () => {
@@ -151,6 +214,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     if (repeatMode === 'one' && currentSong) {
       // Repeat track: reset progress and play
       set({ progress: 0, isPlaying: true })
+      setStorage('melofy_last_progress', 0)
       return
     }
 
@@ -164,7 +228,11 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         queueIndex: nextIndex,
         isPlaying: true,
         progress: 0,
+        duration: nextSong.duration || 0,
       })
+      setStorage('melofy_current_song', nextSong)
+      setStorage('melofy_queue_index', nextIndex)
+      setStorage('melofy_last_progress', 0)
     } else if (repeatMode === 'all') {
       // Wrap around
       const firstSong = queue[0]
@@ -173,9 +241,14 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         queueIndex: 0,
         isPlaying: true,
         progress: 0,
+        duration: firstSong.duration || 0,
       })
+      setStorage('melofy_current_song', firstSong)
+      setStorage('melofy_queue_index', 0)
+      setStorage('melofy_last_progress', 0)
     } else {
       set({ isPlaying: false, progress: 0 })
+      setStorage('melofy_last_progress', 0)
     }
   },
 
@@ -184,6 +257,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     // Spotify logic: If song played for more than 3 seconds, restart it
     if (progress > 3) {
       set({ progress: 0 })
+      setStorage('melofy_last_progress', 0)
       return
     }
 
@@ -195,9 +269,14 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         queueIndex: prevIndex,
         isPlaying: true,
         progress: 0,
+        duration: prevSong.duration || 0,
       })
+      setStorage('melofy_current_song', prevSong)
+      setStorage('melofy_queue_index', prevIndex)
+      setStorage('melofy_last_progress', 0)
     } else {
       set({ progress: 0 })
+      setStorage('melofy_last_progress', 0)
     }
   },
 
@@ -247,9 +326,19 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     }
   },
 
-  setProgress: (progress) => set({ progress }),
+  setProgress: (progress) => {
+    set({ progress })
+    const now = Date.now()
+    if (now - lastProgressSaveTime > 1500) {
+      lastProgressSaveTime = now
+      setStorage('melofy_last_progress', Math.floor(progress))
+    }
+  },
   setDuration: (duration) => set({ duration }),
-  seekTo: (progress) => set({ progress }),
+  seekTo: (progress) => {
+    set({ progress })
+    setStorage('melofy_last_progress', Math.floor(progress))
+  },
 
   addToQueue: (song) => {
     const { queue, originalQueue, currentSong } = get()
@@ -257,10 +346,12 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       get().playSongWithQueue(song, [song], 0)
       return
     }
+    const newQueue = [...queue, song]
     set({
-      queue: [...queue, song],
+      queue: newQueue,
       originalQueue: [...originalQueue, song],
     })
+    setStorage('melofy_queue', newQueue)
   },
 
   playNextInQueue: (song) => {
@@ -271,6 +362,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       queue: newQueue,
       originalQueue: [...originalQueue, song],
     })
+    setStorage('melofy_queue', newQueue)
   },
 
   removeFromQueue: (index) => {
@@ -281,18 +373,26 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       newIndex = queueIndex - 1
     }
     set({ queue: newQueue, queueIndex: newIndex })
+    setStorage('melofy_queue', newQueue)
+    setStorage('melofy_queue_index', newIndex)
   },
 
   clearQueue: () => {
     const { currentSong } = get()
+    const q = currentSong ? [currentSong] : []
     set({
-      queue: currentSong ? [currentSong] : [],
-      originalQueue: currentSong ? [currentSong] : [],
+      queue: q,
+      originalQueue: q,
       queueIndex: 0,
     })
+    setStorage('melofy_queue', q)
+    setStorage('melofy_queue_index', 0)
   },
 
-  setQueue: (queue) => set({ queue, originalQueue: queue }),
+  setQueue: (queue) => {
+    set({ queue, originalQueue: queue })
+    setStorage('melofy_queue', queue)
+  },
 
   toggleLyrics: () => set((state) => ({ isLyricsOpen: !state.isLyricsOpen, isQueueOpen: false })),
   toggleQueue: () => set((state) => ({ isQueueOpen: !state.isQueueOpen, isLyricsOpen: false })),

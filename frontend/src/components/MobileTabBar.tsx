@@ -35,6 +35,15 @@ export default function MobileTabBar() {
           <Link
             key={tab.href}
             href={tab.href}
+            onClick={(e) => {
+              if (tab.href === "/" && pathname === "/") {
+                e.preventDefault()
+                const mainEl = document.getElementById("main-scroll-container") || document.querySelector("main")?.parentElement
+                if (mainEl) {
+                  mainEl.scrollTo({ top: 0, behavior: "smooth" })
+                }
+              }
+            }}
             className={`flex flex-col items-center justify-center flex-1 py-1 transition-colors min-h-[44px] ${
               tab.isActive ? "text-white font-semibold" : "text-[#b3b3b3] hover:text-white"
             }`}

@@ -61,6 +61,7 @@ export default function Player() {
   const currentUserId = user?.id || "1"
   const hasLoggedPlayRef = useRef(false)
   const previousSongRef = useRef<{ id: string; duration?: number; progress: number } | null>(null)
+  const restoredSeekAppliedRef = useRef(false)
 
   const [isHoveringProgress, setIsHoveringProgress] = useState(false)
   const [isHoveringVolume, setIsHoveringVolume] = useState(false)
@@ -72,6 +73,22 @@ export default function Player() {
   // Hydrate user settings from localStorage on client mount
   useEffect(() => {
     usePlayerStore.getState().initFromStorage()
+  }, [])
+
+  // Persist exact audio playback position when closing or refreshing app
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (audioRef.current) {
+        const cur = Math.floor(audioRef.current.currentTime)
+        if (cur > 0) {
+          try {
+            localStorage.setItem("melofy_last_progress", JSON.stringify(cur))
+          } catch {}
+        }
+      }
+    }
+    window.addEventListener("beforeunload", handleBeforeUnload)
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload)
   }, [])
 
   // Android back button / popstate handling for full-screen sheet
@@ -123,6 +140,9 @@ export default function Player() {
     }
 
     // Reset interaction trackers for the newly loaded song
+    if (previousSongRef.current && previousSongRef.current.id !== currentSong.id) {
+      restoredSeekAppliedRef.current = true
+    }
     hasLoggedPlayRef.current = false
     setIsBuffering(true)
     if (currentSong.duration) {
@@ -341,6 +361,17 @@ export default function Player() {
           onTimeUpdate={handleTimeUpdate}
           onLoadedMetadata={() => {
             applyCurrentVolume()
+            if (!restoredSeekAppliedRef.current) {
+              restoredSeekAppliedRef.current = true
+              const savedProgress = usePlayerStore.getState().progress
+              if (savedProgress > 0 && audioRef.current) {
+                try {
+                  audioRef.current.currentTime = savedProgress
+                } catch (e) {
+                  console.warn("Restore seek error:", e)
+                }
+              }
+            }
             handleTimeUpdate()
           }}
           onWaiting={() => setIsBuffering(true)}
@@ -351,6 +382,17 @@ export default function Player() {
           onCanPlay={() => {
             applyCurrentVolume()
             setIsBuffering(false)
+            if (!restoredSeekAppliedRef.current) {
+              restoredSeekAppliedRef.current = true
+              const savedProgress = usePlayerStore.getState().progress
+              if (savedProgress > 0 && audioRef.current) {
+                try {
+                  audioRef.current.currentTime = savedProgress
+                } catch (e) {
+                  console.warn("Restore seek error:", e)
+                }
+              }
+            }
             if (isPlaying && audioRef.current && audioRef.current.paused) {
               audioRef.current.play().catch((err) => console.log("Audio autoplay prevented:", err))
             }

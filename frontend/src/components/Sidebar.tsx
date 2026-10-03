@@ -77,6 +77,15 @@ export default function Sidebar() {
       <div className="bg-[#121212] rounded-lg p-4 space-y-4">
         <Link
           href="/"
+          onClick={(e) => {
+            if (pathname === "/") {
+              e.preventDefault()
+              const mainEl = document.getElementById("main-scroll-container") || document.querySelector("main")?.parentElement
+              if (mainEl) {
+                mainEl.scrollTo({ top: 0, behavior: "smooth" })
+              }
+            }
+          }}
           className={`flex items-center space-x-5 transition-colors ${
             pathname === "/" ? "text-white font-bold" : "text-[#b3b3b3] hover:text-white"
           } ${isEffectiveCollapsed ? "justify-center" : ""}`}
