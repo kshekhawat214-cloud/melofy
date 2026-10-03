@@ -136,7 +136,7 @@ export default function LibraryPage() {
                     )}
                   </div>
                   <p className="text-xs text-[#b3b3b3] truncate">
-                    Playlist • {pl.owner || "Guest"}
+                    {pl.isSaved ? `Shared by ${pl.owner || "User"}` : `Playlist • ${pl.songCount || 0} songs`}
                   </p>
                 </div>
               </Link>

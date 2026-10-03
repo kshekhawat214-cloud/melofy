@@ -5,7 +5,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from database.models import User, Interaction, get_db
-from services.recommender import build_dynamic_shelves, update_user_profile
+from services.recommender import build_dynamic_shelves, update_user_profile, get_vibe_queue_for_song
+from typing import Optional
+from fastapi import Query, Header
 import uuid
 
 router = APIRouter(prefix="/api", tags=["Recommendations"])
@@ -42,6 +44,24 @@ def get_home_feed(user_id: str = DEFAULT_USER_ID, db: Session = Depends(get_db))
     _get_or_create_user(db, user_id)
     shelves = build_dynamic_shelves(db, user_id)
     return {"user_id": user_id, "shelves": shelves}
+
+
+@router.get("/recommendations/vibe-queue/{song_id}")
+def get_vibe_queue(
+    song_id: str,
+    user_id: Optional[str] = Query(None),
+    authorization: Optional[str] = Header(None),
+    x_user_id: Optional[str] = Header(None),
+    limit: int = 25,
+    db: Session = Depends(get_db),
+):
+    """
+    Returns an intelligent queue of recommended songs matched to the seed song's
+    vibe (mood, energy, tempo) and genre, tuned to the active user's listening behavior.
+    """
+    target_user = user_id or x_user_id or "1"
+    songs = get_vibe_queue_for_song(db, seed_song_id=song_id, user_id=target_user, limit=limit)
+    return {"seed_song_id": song_id, "songs": songs}
 
 
 @router.post("/interaction")

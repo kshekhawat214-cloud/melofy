@@ -293,7 +293,9 @@ export default function Sidebar() {
                         <Volume2 size={14} className="text-[#1db954] flex-shrink-0 animate-pulse" />
                       )}
                     </div>
-                    <span className="text-[#b3b3b3] text-xs truncate">Playlist • {pl.owner || "Guest"}</span>
+                    <span className="text-[#b3b3b3] text-xs truncate">
+                      {pl.isSaved ? `Shared by ${pl.owner || "User"}` : `Playlist • ${pl.songCount || 0} songs`}
+                    </span>
                   </div>
                 )}
               </Link>

@@ -2,8 +2,8 @@
 import { useEffect, useRef, useState } from "react"
 import { useUIStore } from "@/store/uiStore"
 import { usePlayerStore } from "@/store/playerStore"
-import { addTrackToPlaylist, removeTrackFromPlaylist, deletePlaylist } from "@/lib/api"
-import { Plus, ListPlus, Heart, Share2, User, Disc, Trash2, ChevronRight, Play, Edit2 } from "lucide-react"
+import { addTrackToPlaylist, removeTrackFromPlaylist, deletePlaylist, unsavePlaylist, clonePlaylist } from "@/lib/api"
+import { Plus, ListPlus, Heart, Share2, User, Disc, Trash2, ChevronRight, Play, Edit2, Copy } from "lucide-react"
 import { useRouter } from "next/navigation"
 
 export default function ContextMenu() {
@@ -37,24 +37,26 @@ export default function ContextMenu() {
   // --- PLAYLIST CONTEXT MENU ---
   if (contextMenu.playlist && !contextMenu.song) {
     const pl = contextMenu.playlist
+    const isOwner = pl.isOwner !== false && !pl.isSaved
 
     const handleDeletePlaylist = async () => {
       closeContextMenu()
-      const confirmed = window.confirm(`Delete "${pl.name}" from Your Library? This cannot be undone.`)
+      const actionText = isOwner ? "Delete" : "Remove"
+      const confirmed = window.confirm(`${actionText} "${pl.name}" from Your Library?`)
       if (!confirmed) return
       try {
-        const ok = await deletePlaylist(pl.id)
+        const ok = isOwner ? await deletePlaylist(pl.id) : await unsavePlaylist(pl.id)
         if (ok) {
-          addToast(`Deleted "${pl.name}"`)
+          addToast(isOwner ? `Deleted "${pl.name}"` : `Removed from your library`)
           await loadPlaylists()
           if (window.location.pathname.includes(pl.id)) {
             router.push("/")
           }
         } else {
-          addToast("Failed to delete playlist", "error")
+          addToast("Failed to remove playlist", "error")
         }
       } catch {
-        addToast("Failed to delete playlist", "error")
+        addToast("Failed to remove playlist", "error")
       }
     }
 
@@ -66,6 +68,18 @@ export default function ContextMenu() {
         description: pl.description,
         coverUrl: pl.coverUrl,
       })
+    }
+
+    const handleClonePlaylist = async () => {
+      closeContextMenu()
+      const cloned = await clonePlaylist(pl.id)
+      if (cloned) {
+        addToast(`Copied to your playlists!`, "success")
+        await loadPlaylists()
+        router.push(`/playlist/${cloned.id}`)
+      } else {
+        addToast("Failed to copy playlist", "error")
+      }
     }
 
     const handleCopyPlaylistLink = () => {
@@ -92,20 +106,30 @@ export default function ContextMenu() {
           <span>Open playlist</span>
         </button>
 
-        <button
-          onClick={handleEditPlaylist}
-          className="w-full text-left px-3 py-2 hover:bg-[#3e3e3e] hover:text-white flex items-center space-x-3 transition-colors"
-        >
-          <Edit2 size={16} />
-          <span>Edit details / Rename</span>
-        </button>
+        {isOwner ? (
+          <button
+            onClick={handleEditPlaylist}
+            className="w-full text-left px-3 py-2 hover:bg-[#3e3e3e] hover:text-white flex items-center space-x-3 transition-colors"
+          >
+            <Edit2 size={16} />
+            <span>Edit details / Rename</span>
+          </button>
+        ) : (
+          <button
+            onClick={handleClonePlaylist}
+            className="w-full text-left px-3 py-2 hover:bg-[#3e3e3e] hover:text-white flex items-center space-x-3 transition-colors"
+          >
+            <Copy size={16} />
+            <span>Copy to my playlists</span>
+          </button>
+        )}
 
         <button
           onClick={handleCopyPlaylistLink}
           className="w-full text-left px-3 py-2 hover:bg-[#3e3e3e] hover:text-white flex items-center space-x-3 transition-colors"
         >
           <Share2 size={16} />
-          <span>Copy link to playlist</span>
+          <span>Copy link to share</span>
         </button>
 
         <div className="h-[1px] bg-[#3e3e3e] my-1" />
@@ -115,7 +139,7 @@ export default function ContextMenu() {
           className="w-full text-left px-3 py-2 hover:bg-red-500/20 text-red-400 hover:text-red-300 flex items-center space-x-3 transition-colors"
         >
           <Trash2 size={16} />
-          <span>Delete playlist</span>
+          <span>{isOwner ? "Delete playlist" : "Remove from library"}</span>
         </button>
       </div>
     )
@@ -160,7 +184,7 @@ export default function ContextMenu() {
     if (success) {
       addToast("Removed track from playlist")
       loadPlaylists()
-      window.location.reload()
+      window.dispatchEvent(new CustomEvent("melofy_playlist_updated", { detail: contextMenu.playlistId }))
     }
     closeContextMenu()
   }

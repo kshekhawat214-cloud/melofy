@@ -13,10 +13,24 @@ import {
   Edit2,
   Share2,
   MoreVertical,
+  Plus,
+  Check,
+  Copy,
 } from "lucide-react"
 import { usePlayerStore } from "@/store/playerStore"
 import { useUIStore } from "@/store/uiStore"
-import { getPlaylist, Playlist, Song, API_BASE, getSongCover, deletePlaylist } from "@/lib/api"
+import { useAuthStore } from "@/store/authStore"
+import {
+  getPlaylist,
+  Playlist,
+  Song,
+  API_BASE,
+  getSongCover,
+  deletePlaylist,
+  savePlaylist,
+  unsavePlaylist,
+  clonePlaylist,
+} from "@/lib/api"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 
@@ -26,22 +40,36 @@ export default function PlaylistPage({ params }: { params: Promise<{ id: string 
 
   const { currentSong, isPlaying, playSongWithQueue, togglePlay, toggleShuffle, shuffle } = usePlayerStore()
   const { openContextMenu, openPlaylistModal, likedSongIds, toggleLikeSong, addToast, loadPlaylists } = useUIStore()
+  const { user } = useAuthStore()
   const router = useRouter()
 
   const [playlist, setPlaylist] = useState<Playlist | null>(null)
   const [loading, setLoading] = useState(true)
+  const [isSaved, setIsSaved] = useState(false)
   const [showOptionsMenu, setShowOptionsMenu] = useState(false)
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
+
+  const currentUserId = user?.id || "1"
+  const isOwner = playlist?.ownerId ? playlist.ownerId === currentUserId : true
 
   useEffect(() => {
     async function loadData() {
       const data = await getPlaylist(playlistId)
       setPlaylist(data)
+      setIsSaved(Boolean(data?.isSaved))
       setLoading(false)
     }
     loadData()
-  }, [playlistId])
+
+    const handlePlaylistUpdated = (e: any) => {
+      if (e?.detail === playlistId || !e?.detail) {
+        loadData()
+      }
+    }
+    window.addEventListener("melofy_playlist_updated", handlePlaylistUpdated)
+    return () => window.removeEventListener("melofy_playlist_updated", handlePlaylistUpdated)
+  }, [playlistId, currentUserId])
 
   if (loading) {
     return (
@@ -75,6 +103,68 @@ export default function PlaylistPage({ params }: { params: Promise<{ id: string 
     }
   }
 
+  const handleShare = async () => {
+    const shareUrl = typeof window !== "undefined" ? window.location.href : ""
+    if (typeof navigator !== "undefined" && navigator.share) {
+      try {
+        await navigator.share({
+          title: `${playlist.name} on Tunely`,
+          text: `Check out ${playlist.name} by ${playlist.owner} on Tunely!`,
+          url: shareUrl,
+        })
+        return
+      } catch {}
+    }
+    try {
+      await navigator.clipboard.writeText(shareUrl)
+      addToast("Playlist link copied to clipboard!")
+    } catch {
+      addToast("Failed to copy link", "error")
+    }
+  }
+
+  const handleToggleSave = async () => {
+    if (isSaved) {
+      const ok = await unsavePlaylist(playlist.id)
+      if (ok) {
+        setIsSaved(false)
+        addToast("Removed from Your Library", "info")
+        loadPlaylists()
+      }
+    } else {
+      const ok = await savePlaylist(playlist.id)
+      if (ok) {
+        setIsSaved(true)
+        addToast("Saved to Your Library!", "success")
+        loadPlaylists()
+      }
+    }
+  }
+
+  const handleClone = async () => {
+    const cloned = await clonePlaylist(playlist.id)
+    if (cloned) {
+      addToast("Copied to your playlists!", "success")
+      await loadPlaylists()
+      router.push(`/playlist/${cloned.id}`)
+    } else {
+      addToast("Failed to copy playlist", "error")
+    }
+  }
+
+  const handleDelete = async () => {
+    setIsDeleting(true)
+    const ok = await deletePlaylist(playlist.id)
+    if (ok) {
+      addToast(isOwner ? "Playlist deleted" : "Removed from your library", "info")
+      await loadPlaylists()
+      router.push("/library")
+    } else {
+      addToast("Failed to remove playlist", "error")
+      setIsDeleting(false)
+    }
+  }
+
   const formatDuration = (totalSeconds: number) => {
     const mins = Math.floor(totalSeconds / 60)
     const secs = Math.floor(totalSeconds % 60)
@@ -99,32 +189,8 @@ export default function PlaylistPage({ params }: { params: Promise<{ id: string 
         {/* Playlist Hero Section */}
         <div className="flex flex-col sm:flex-row items-center sm:items-end px-4 sm:px-8 pt-6 sm:pt-8 pb-4 sm:pb-6 space-y-4 sm:space-y-0 sm:space-x-6 text-center sm:text-left">
           <div
-            onClick={() =>
-              openPlaylistModal({
-                id: playlist.id,
-                name: playlist.name,
-                description: playlist.description,
-                coverUrl: playlist.coverUrl,
-              })
-            }
-            className="w-44 h-44 sm:w-56 sm:h-56 flex-shrink-0 rounded-lg overflow-hidden shadow-2xl shadow-black/80 bg-[#181818] flex items-center justify-center cursor-pointer group/hero relative"
-            title="Click to edit playlist details"
-          >
-            {playlist.coverUrl ? (
-              <img src={playlist.coverUrl} className="w-full h-full object-cover group-hover/hero:opacity-80 transition" alt="Playlist Cover" />
-            ) : (
-              <Music size={60} className="text-[#666]" />
-            )}
-            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/hero:opacity-100 flex flex-col items-center justify-center transition-opacity text-white">
-              <Edit2 size={32} />
-              <span className="text-xs font-bold mt-2">Choose photo</span>
-            </div>
-          </div>
-
-          <div className="flex flex-col text-white items-center sm:items-start">
-            <span className="text-xs font-bold tracking-wider uppercase mb-1 sm:mb-1.5">Playlist</span>
-            <h1
-              onClick={() =>
+            onClick={() => {
+              if (isOwner) {
                 openPlaylistModal({
                   id: playlist.id,
                   name: playlist.name,
@@ -132,8 +198,44 @@ export default function PlaylistPage({ params }: { params: Promise<{ id: string 
                   coverUrl: playlist.coverUrl,
                 })
               }
-              className="text-3xl sm:text-5xl md:text-6xl lg:text-7xl font-black tracking-tight mb-2 sm:mb-4 cursor-pointer hover:underline"
-              title="Click to rename playlist"
+            }}
+            className={`w-44 h-44 sm:w-56 sm:h-56 flex-shrink-0 rounded-lg overflow-hidden shadow-2xl shadow-black/80 bg-[#181818] flex items-center justify-center relative group/hero ${
+              isOwner ? "cursor-pointer" : "cursor-default"
+            }`}
+            title={isOwner ? "Click to edit playlist details" : playlist.name}
+          >
+            {playlist.coverUrl ? (
+              <img src={playlist.coverUrl} className="w-full h-full object-cover group-hover/hero:opacity-80 transition" alt="Playlist Cover" />
+            ) : (
+              <Music size={60} className="text-[#666]" />
+            )}
+            {isOwner && (
+              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/hero:opacity-100 flex flex-col items-center justify-center transition-opacity text-white">
+                <Edit2 size={32} />
+                <span className="text-xs font-bold mt-2">Choose photo</span>
+              </div>
+            )}
+          </div>
+
+          <div className="flex flex-col text-white items-center sm:items-start">
+            <span className="text-xs font-bold tracking-wider uppercase mb-1 sm:mb-1.5 text-[#b3b3b3]">
+              {isOwner ? "Public Playlist" : "Shared Playlist"}
+            </span>
+            <h1
+              onClick={() => {
+                if (isOwner) {
+                  openPlaylistModal({
+                    id: playlist.id,
+                    name: playlist.name,
+                    description: playlist.description,
+                    coverUrl: playlist.coverUrl,
+                  })
+                }
+              }}
+              className={`text-3xl sm:text-5xl md:text-6xl lg:text-7xl font-black tracking-tight mb-2 sm:mb-4 ${
+                isOwner ? "cursor-pointer hover:underline" : "cursor-default"
+              }`}
+              title={isOwner ? "Click to rename playlist" : playlist.name}
             >
               {playlist.name}
             </h1>
@@ -143,7 +245,9 @@ export default function PlaylistPage({ params }: { params: Promise<{ id: string 
               </p>
             )}
             <div className="flex items-center text-sm font-semibold space-x-2 text-[#b3b3b3]">
-              <span className="text-white hover:underline cursor-pointer">{playlist.owner || "Guest"}</span>
+              <span className="text-white hover:underline cursor-pointer">
+                {isOwner ? "You" : playlist.owner || "User"}
+              </span>
               <span>•</span>
               <span>{tracks.length} songs</span>
               {playlist.totalDuration > 0 && (
@@ -179,6 +283,31 @@ export default function PlaylistPage({ params }: { params: Promise<{ id: string 
             <Shuffle size={24} />
           </button>
 
+          {/* If NOT the owner: Save / Unsave button */}
+          {!isOwner && (
+            <button
+              onClick={handleToggleSave}
+              className={`flex items-center space-x-2 px-4 py-2 rounded-full font-bold text-xs tracking-wider transition-all duration-200 border ${
+                isSaved
+                  ? "border-[#1db954] text-[#1db954] bg-[#1db954]/15 hover:bg-[#1db954]/25"
+                  : "border-white/40 text-white hover:border-white hover:scale-105 active:scale-95 bg-white/5 hover:bg-white/10"
+              }`}
+              title={isSaved ? "Remove from Your Library" : "Save to Your Library"}
+            >
+              {isSaved ? <Check size={16} /> : <Plus size={16} />}
+              <span>{isSaved ? "In Library" : "Save to Library"}</span>
+            </button>
+          )}
+
+          {/* Share Button directly in action row */}
+          <button
+            onClick={handleShare}
+            className="p-2 text-[#b3b3b3] hover:text-white hover:bg-white/10 rounded-full transition flex items-center space-x-1.5"
+            title="Share playlist"
+          >
+            <Share2 size={22} />
+          </button>
+
           <div className="relative">
             <button
               onClick={() => setShowOptionsMenu(!showOptionsMenu)}
@@ -191,45 +320,76 @@ export default function PlaylistPage({ params }: { params: Promise<{ id: string 
             {showOptionsMenu && (
               <div
                 onMouseLeave={() => setShowOptionsMenu(false)}
-                className="absolute left-0 top-10 w-48 bg-[#282828] border border-[#383838] rounded-md shadow-2xl py-1 z-50 text-sm text-[#e0e0e0] animate-in fade-in duration-100"
+                className="absolute left-0 top-10 w-52 bg-[#282828] border border-[#383838] rounded-md shadow-2xl py-1 z-50 text-sm text-[#e0e0e0] animate-in fade-in duration-100 divide-y divide-[#383838]"
               >
-                <button
-                  onClick={() => {
-                    setShowOptionsMenu(false)
-                    openPlaylistModal({
-                      id: playlist.id,
-                      name: playlist.name,
-                      description: playlist.description,
-                      coverUrl: playlist.coverUrl,
-                    })
-                  }}
-                  className="w-full text-left px-4 py-2 hover:bg-[#383838] hover:text-white flex items-center space-x-3"
-                >
-                  <Edit2 size={16} />
-                  <span>Edit details</span>
-                </button>
-                <button
-                  onClick={() => {
-                    navigator.clipboard.writeText(window.location.href)
-                    addToast("Playlist link copied")
-                    setShowOptionsMenu(false)
-                  }}
-                  className="w-full text-left px-4 py-2 hover:bg-[#383838] hover:text-white flex items-center space-x-3"
-                >
-                  <Share2 size={16} />
-                  <span>Share</span>
-                </button>
-                <div className="h-[1px] bg-[#383838] my-1" />
-                <button
-                  onClick={() => {
-                    setShowOptionsMenu(false)
-                    setShowDeleteModal(true)
-                  }}
-                  className="w-full text-left px-4 py-2 hover:bg-red-500/20 text-red-400 hover:text-red-300 flex items-center space-x-3 transition-colors"
-                >
-                  <Trash2 size={16} />
-                  <span>Delete playlist</span>
-                </button>
+                <div className="py-1">
+                  {isOwner ? (
+                    <button
+                      onClick={() => {
+                        setShowOptionsMenu(false)
+                        openPlaylistModal({
+                          id: playlist.id,
+                          name: playlist.name,
+                          description: playlist.description,
+                          coverUrl: playlist.coverUrl,
+                        })
+                      }}
+                      className="w-full text-left px-4 py-2 hover:bg-[#383838] hover:text-white flex items-center space-x-3 text-xs"
+                    >
+                      <Edit2 size={15} />
+                      <span>Edit details</span>
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        onClick={() => {
+                          setShowOptionsMenu(false)
+                          handleToggleSave()
+                        }}
+                        className="w-full text-left px-4 py-2 hover:bg-[#383838] hover:text-white flex items-center space-x-3 text-xs"
+                      >
+                        {isSaved ? <Check size={15} className="text-[#1db954]" /> : <Plus size={15} />}
+                        <span>{isSaved ? "Remove from Library" : "Save to Library"}</span>
+                      </button>
+                      <button
+                        onClick={() => {
+                          setShowOptionsMenu(false)
+                          handleClone()
+                        }}
+                        className="w-full text-left px-4 py-2 hover:bg-[#383838] hover:text-white flex items-center space-x-3 text-xs"
+                      >
+                        <Copy size={15} />
+                        <span>Copy to my playlists</span>
+                      </button>
+                    </>
+                  )}
+
+                  <button
+                    onClick={() => {
+                      setShowOptionsMenu(false)
+                      handleShare()
+                    }}
+                    className="w-full text-left px-4 py-2 hover:bg-[#383838] hover:text-white flex items-center space-x-3 text-xs"
+                  >
+                    <Share2 size={15} />
+                    <span>Share link</span>
+                  </button>
+                </div>
+
+                {isOwner && (
+                  <div className="py-1">
+                    <button
+                      onClick={() => {
+                        setShowOptionsMenu(false)
+                        setShowDeleteModal(true)
+                      }}
+                      className="w-full text-left px-4 py-2 hover:bg-red-500/20 text-red-400 hover:text-red-300 flex items-center space-x-3 text-xs transition-colors"
+                    >
+                      <Trash2 size={15} />
+                      <span>Delete playlist</span>
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>

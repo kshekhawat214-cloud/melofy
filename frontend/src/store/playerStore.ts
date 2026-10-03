@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { Song, recordInteraction } from '@/lib/api'
+import { Song, recordInteraction, getVibeQueue } from '@/lib/api'
 
 export type RepeatMode = 'off' | 'all' | 'one'
 export type RightSidebarView = 'now_playing' | 'queue'
@@ -36,6 +36,7 @@ interface PlayerState {
   setProgress: (progress: number) => void
   setDuration: (duration: number) => void
   seekTo: (progress: number) => void
+  fetchAndApplyVibeQueue: (seedSong: Song) => Promise<void>
   
   // Queue operations
   addToQueue: (song: Song) => void
@@ -165,10 +166,46 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     }
   },
 
+  fetchAndApplyVibeQueue: async (seedSong: Song) => {
+    try {
+      const vibeSongs = await getVibeQueue(seedSong.id)
+      if (!vibeSongs || vibeSongs.length === 0) return
+
+      const { currentSong, queue, originalQueue } = get()
+      // Only append if user hasn't skipped to another unrelated track
+      if (currentSong?.id !== seedSong.id) return
+
+      const existingIds = new Set(queue.map((s) => s.id))
+      const freshCandidates = vibeSongs.filter((s) => !existingIds.has(s.id))
+      if (freshCandidates.length === 0) return
+
+      const enrichedQueue = [...queue, ...freshCandidates]
+      const enrichedOrig = [...originalQueue, ...freshCandidates]
+      set({
+        queue: enrichedQueue,
+        originalQueue: enrichedOrig,
+      })
+      setStorage('melofy_queue', enrichedOrig)
+    } catch (e) {
+      console.warn("Vibe queue auto-enrich note:", e)
+    }
+  },
+
   setCurrentSong: (song) => {
-    set({ currentSong: song, isPlaying: true, progress: 0, duration: song.duration || 0 })
+    set({
+      currentSong: song,
+      isPlaying: true,
+      progress: 0,
+      duration: song.duration || 0,
+      queue: [song],
+      originalQueue: [song],
+      queueIndex: 0,
+    })
     setStorage('melofy_current_song', song)
+    setStorage('melofy_queue', [song])
+    setStorage('melofy_queue_index', 0)
     setStorage('melofy_last_progress', 0)
+    get().fetchAndApplyVibeQueue(song)
   },
 
   setIsPlaying: (isPlaying) => set({ isPlaying }),
@@ -207,6 +244,11 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     setStorage('melofy_queue', rawQueue)
     setStorage('melofy_queue_index', shuffle ? 0 : effectiveIdx)
     setStorage('melofy_last_progress', 0)
+
+    // When the user plays their first song or a standalone song, dynamically build vibe queue!
+    if (rawQueue.length <= 1) {
+      get().fetchAndApplyVibeQueue(song)
+    }
   },
 
   playNext: () => {
@@ -233,6 +275,11 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
       setStorage('melofy_current_song', nextSong)
       setStorage('melofy_queue_index', nextIndex)
       setStorage('melofy_last_progress', 0)
+
+      // If near end of queue, fetch next batch of vibe-matched songs
+      if (nextIndex >= queue.length - 2 && repeatMode === 'off') {
+        get().fetchAndApplyVibeQueue(nextSong)
+      }
     } else if (repeatMode === 'all') {
       // Wrap around
       const firstSong = queue[0]

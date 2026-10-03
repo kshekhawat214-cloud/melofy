@@ -220,6 +220,18 @@ class Interaction(Base):
     song = relationship("Song", back_populates="interactions")
 
 
+class SavedPlaylist(Base):
+    __tablename__ = "saved_playlists"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
+    playlist_id = Column(String, ForeignKey("playlists.id"), nullable=False, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    user = relationship("User", backref="saved_playlists")
+    playlist = relationship("Playlist", backref="saved_by")
+
+
 def get_db():
     db = SessionLocal()
     try:
@@ -240,9 +252,10 @@ def create_tables():
                     conn.execute(text("ALTER TABLE users ADD COLUMN username VARCHAR"))
                 if "password_hash" not in columns:
                     conn.execute(text("ALTER TABLE users ADD COLUMN password_hash VARCHAR"))
-                conn.commit()
+        if not inspector.has_table("saved_playlists"):
+            SavedPlaylist.__table__.create(bind=engine, checkfirst=True)
     except Exception as e:
-        logger.info(f"User table migration check: {e}")
+        logger.info(f"Database migration check: {e}")
 
     # Seed default Guest user if not present
     try:

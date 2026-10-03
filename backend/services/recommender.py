@@ -300,3 +300,133 @@ def build_dynamic_shelves(db: Session, user_id: str) -> List[Dict]:
 
     # Filter empty shelves
     return [s for s in shelves if s["songs"]]
+
+
+def get_vibe_queue_for_song(
+    db: Session,
+    seed_song_id: str,
+    user_id: str = "1",
+    limit: int = 30
+) -> List[Dict]:
+    """
+    Given a seed song played by the user (first song or selected track):
+    1. Analyzes the seed song's genre, mood, tempo, energy, and artist.
+    2. Identifies kindred genres & vibe clusters.
+    3. Scores all other songs using a multi-factor vibe similarity model.
+    4. Incorporates user preferences (boosting liked artists/genres, suppressing skips).
+    5. Returns an ordered queue of vibe-matching tracks.
+    """
+    from routers.songs import _serialize
+
+    seed = db.query(Song).filter(Song.id == seed_song_id).first()
+    all_songs = db.query(Song).all()
+    if not seed or not all_songs:
+        return []
+
+    user = db.query(User).filter(User.id == user_id).first()
+
+    # Seed attributes
+    seed_genre = (seed.genre or "").strip().lower()
+    seed_mood = (seed.mood or "").strip().lower()
+    seed_energy = seed.energy if seed.energy is not None else 0.6
+    seed_tempo = seed.tempo if seed.tempo is not None else 110.0
+    seed_artist = (seed.artist or "").strip().lower()
+
+    # Kindred genre clusters
+    GENRE_CLUSTERS = {
+        "lo-fi": ["lo-fi", "chillhop", "indie", "acoustic", "ambient", "romantic"],
+        "acoustic": ["acoustic", "indie", "folk", "lo-fi", "romantic", "pop"],
+        "romantic": ["romantic", "bollywood", "acoustic", "lo-fi", "pop"],
+        "bollywood": ["bollywood", "romantic", "pop", "dance"],
+        "pop": ["pop", "dance", "electronic", "bollywood"],
+        "dance": ["dance", "electronic", "edm", "house", "party", "pop"],
+        "electronic": ["electronic", "edm", "dance", "house", "ambient"],
+        "hip-hop": ["hip-hop", "rap", "trap", "r&b"],
+        "rock": ["rock", "alt-rock", "indie", "punk"],
+    }
+    kindred_genres = set()
+    for cluster_key, group in GENRE_CLUSTERS.items():
+        if cluster_key in seed_genre or any(g in seed_genre for g in group):
+            kindred_genres.update(group)
+
+    # User interactions for behavior weighting
+    user_interactions = {}
+    if user:
+        interactions = db.query(Interaction).filter(Interaction.user_id == user_id).all()
+        for ia in interactions:
+            user_interactions.setdefault(ia.song_id, []).append(ia.interaction_type)
+
+    candidates = []
+    for s in all_songs:
+        if s.id == seed.id:
+            continue  # Exclude seed song from recommendation queue
+
+        cand_genre = (s.genre or "").strip().lower()
+        cand_mood = (s.mood or "").strip().lower()
+        cand_artist = (s.artist or "").strip().lower()
+        cand_energy = s.energy if s.energy is not None else 0.6
+        cand_tempo = s.tempo if s.tempo is not None else 110.0
+
+        # 1. Genre Score (0.0 to 1.0)
+        genre_score = 0.15
+        if seed_genre and cand_genre:
+            if seed_genre == cand_genre:
+                genre_score = 1.0
+            elif seed_genre in cand_genre or cand_genre in seed_genre:
+                genre_score = 0.9
+            elif cand_genre in kindred_genres or any(kg in cand_genre for kg in kindred_genres):
+                genre_score = 0.75
+            else:
+                genre_score = 0.2
+
+        # 2. Mood / Vibe Score (0.0 to 1.0)
+        mood_score = 0.3
+        if seed_mood and cand_mood:
+            if seed_mood == cand_mood:
+                mood_score = 1.0
+            elif (seed_mood in ["chill", "romantic"] and cand_mood in ["chill", "romantic"]) or \
+                 (seed_mood in ["energetic", "party", "happy"] and cand_mood in ["energetic", "party", "happy"]) or \
+                 (seed_mood in ["dark", "sad"] and cand_mood in ["dark", "sad"]):
+                mood_score = 0.85
+            else:
+                mood_score = 0.25
+
+        # 3. Energy proximity (0.0 to 1.0)
+        energy_diff = abs(cand_energy - seed_energy)
+        energy_score = max(0.0, 1.0 - (energy_diff * 2.0))
+
+        # 4. Tempo proximity (0.0 to 1.0)
+        tempo_diff = abs(cand_tempo - seed_tempo)
+        tempo_score = max(0.0, 1.0 - (tempo_diff / 60.0))
+
+        # 5. Artist Affinity
+        artist_score = 0.0
+        if seed_artist and cand_artist and (seed_artist in cand_artist or cand_artist in seed_artist):
+            artist_score = 0.8
+
+        # 6. User Behavior / Preference
+        hist = user_interactions.get(s.id, [])
+        behavior_boost = 0.0
+        if "LIKE" in hist:
+            behavior_boost += 0.3
+        if "REPLAY" in hist:
+            behavior_boost += 0.2
+        if "SKIP" in hist:
+            behavior_boost -= 0.4
+
+        # Total Vibe Score: Genre 35%, Mood 30%, Energy 15%, Tempo 10%, Artist 10%
+        vibe_score = (
+            (genre_score * 0.35) +
+            (mood_score * 0.30) +
+            (energy_score * 0.15) +
+            (tempo_score * 0.10) +
+            (artist_score * 0.10) +
+            behavior_boost
+        )
+
+        candidates.append({"song": s, "score": vibe_score})
+
+    # Sort descending by vibe_score
+    candidates.sort(key=lambda x: x["score"], reverse=True)
+    return [_serialize(c["song"]) for c in candidates[:limit]]
+

@@ -52,7 +52,10 @@ export interface Playlist {
   description?: string
   coverUrl?: string
   owner: string
+  ownerUsername?: string
   ownerId?: string
+  isOwner?: boolean
+  isSaved?: boolean
   isPublic?: boolean
   songCount: number
   totalDuration: number
@@ -267,6 +270,58 @@ export async function removeTrackFromPlaylist(playlistId: string, songId: string
     return res.ok
   } catch {
     return false
+  }
+}
+
+export async function savePlaylist(playlistId: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_BASE}/api/playlists/${playlistId}/save`, {
+      method: "POST",
+      headers: getAuthHeaders(),
+    })
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
+export async function unsavePlaylist(playlistId: string): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_BASE}/api/playlists/${playlistId}/save`, {
+      method: "DELETE",
+      headers: getAuthHeaders(),
+    })
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
+export async function clonePlaylist(playlistId: string): Promise<Playlist | null> {
+  try {
+    const res = await fetch(`${API_BASE}/api/playlists/${playlistId}/clone`, {
+      method: "POST",
+      headers: getAuthHeaders(),
+    })
+    if (!res.ok) return null
+    return res.json()
+  } catch {
+    return null
+  }
+}
+
+export async function getVibeQueue(songId: string, userId?: string): Promise<Song[]> {
+  try {
+    const uid = userId || getCurrentUserId()
+    const res = await fetch(`${API_BASE}/api/recommendations/vibe-queue/${songId}?user_id=${encodeURIComponent(uid)}`, {
+      headers: getAuthHeaders(),
+      cache: "no-store",
+    })
+    if (!res.ok) return []
+    const data = await res.json()
+    return data.songs || []
+  } catch {
+    return []
   }
 }
 
