@@ -29,6 +29,12 @@ from services.downloader import (
     resolve_song_cover_and_album,
     ydl_opts,
     AUDIO_DIR,
+    clean_song_title,
+    clean_album_name,
+    is_generic_album,
+    extract_version_tags,
+    are_artists_compatible,
+    similarity,
 )
 from services.job_store import update_job
 import yt_dlp
@@ -424,11 +430,46 @@ def execute_import_job(
             if not existing_song and t_source_url:
                 existing_song = db.query(Song).filter(Song.source_url == t_source_url).first()
             if not existing_song:
-                # Fuzzy match by title + artist in DB to reuse existing songs
-                existing_song = db.query(Song).filter(
-                    Song.title.ilike(f"%{t_title[:20]}%"),
-                    Song.artist.ilike(f"%{t_artist[:15]}%")
-                ).first()
+                # Intelligent candidate matching: verify clean title, version tag, album, duration & artist
+                t_clean = clean_song_title(t_title).lower().strip()
+                t_versions = extract_version_tags(t_title)
+                t_alb_clean = clean_album_name(t_album).lower().strip() if t_album else ""
+
+                candidates = db.query(Song).filter(
+                    Song.title.ilike(f"%{t_clean[:15]}%")
+                ).all()
+
+                for cand in candidates:
+                    cand_clean = clean_song_title(cand.title).lower().strip()
+                    # 1. Clean title similarity
+                    if cand_clean != t_clean and similarity(cand_clean, t_clean) < 0.85:
+                        continue
+
+                    # 2. Strict Version Tag check (e.g. Live vs Studio vs Acoustic vs Remix)
+                    cand_versions = extract_version_tags(cand.title)
+                    if t_versions != cand_versions:
+                        continue
+
+                    # 3. Album / Soundtrack Conflict Check
+                    if cand.album and t_alb_clean:
+                        cand_alb_clean = clean_album_name(cand.album).lower().strip()
+                        if cand_alb_clean and t_alb_clean and not is_generic_album(cand_alb_clean) and not is_generic_album(t_alb_clean):
+                            if cand_alb_clean != t_alb_clean and similarity(cand_alb_clean, t_alb_clean) < 0.70:
+                                # Different movie/soundtrack (e.g. Chandni Chowk To China != My Name Is Khan)
+                                continue
+
+                    # 4. Duration Check: if both > 30s, difference > 15s means different song
+                    if cand.duration and t_duration and cand.duration > 30 and t_duration > 30:
+                        if abs(cand.duration - t_duration) > 15:
+                            continue
+
+                    # 5. Artist & Singer Compatibility
+                    if not are_artists_compatible(cand.artist, t_artist):
+                        continue
+
+                    # Genuinely identical track found
+                    existing_song = cand
+                    break
 
             if existing_song:
                 song_id = existing_song.id

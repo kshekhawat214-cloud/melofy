@@ -175,6 +175,111 @@ UNWANTED_VERSION_KEYWORDS = [
     "trance mix", "house mix", "lo-fi mix", "mash up"
 ]
 
+VERSION_PATTERNS = [
+    r"\blive\b",
+    r"\bconcert\b",
+    r"\broyal albert hall\b",
+    r"\bacoustic\b",
+    r"\bunplugged\b",
+    r"\bstripped\b",
+    r"\bremix\b",
+    r"\bclub mix\b",
+    r"\bdj mix\b",
+    r"\borchestral\b",
+    r"\bsymphon(?:ic|y)\b",
+    r"\bkaraoke\b",
+    r"\binstrumental\b",
+    r"\bslowed\b",
+    r"\breverb\b",
+    r"\bsped up\b",
+    r"\bextended\b",
+    r"\bdeluxe\b",
+    r"\bradio edit\b",
+    r"\bdemo\b",
+    r"\btiny desk\b",
+    r"\blive lounge\b",
+]
+
+def extract_version_tags(text: str) -> set:
+    """Extracts distinctive version tags (live, acoustic, remix, royal albert hall, etc.) from title/text."""
+    if not text:
+        return set()
+    found = set()
+    t_lower = text.lower()
+    for pat in VERSION_PATTERNS:
+        match = re.search(pat, t_lower)
+        if match:
+            found.add(match.group(0).strip())
+    return found
+
+def clean_album_name(album: str) -> str:
+    """Removes EP, Deluxe, Soundtrack suffixes from album name to allow accurate comparison."""
+    if not album:
+        return ""
+    a = album
+    a = re.sub(r" \(Original Motion Picture Soundtrack.*?\)", "", a, flags=re.IGNORECASE)
+    a = re.sub(r" - Original Motion Picture Soundtrack.*", "", a, flags=re.IGNORECASE)
+    a = re.sub(r" \(From \".*?\"\)", "", a, flags=re.IGNORECASE)
+    a = re.sub(r" - EP\b", "", a, flags=re.IGNORECASE)
+    a = re.sub(r" \[Deluxe.*?\]", "", a, flags=re.IGNORECASE)
+    a = re.sub(r" \(Deluxe.*?\)", "", a, flags=re.IGNORECASE)
+    a = re.sub(r" - Single\b", "", a, flags=re.IGNORECASE)
+    return a.strip()
+
+GENERIC_ALBUMS = {
+    "single", "single version", "unknown album", "playlist", "imported playlist",
+    "spotify playlist", "tunely", "music", "various artists", "top tracks", "hits"
+}
+
+def is_generic_album(album: str) -> bool:
+    if not album:
+        return True
+    a_lower = album.strip().lower()
+    return a_lower in GENERIC_ALBUMS or len(a_lower) < 2
+
+def are_artists_compatible(art1: str, art2: str) -> bool:
+    """
+    Checks if two artist strings share compatible primary artists or singers,
+    preventing merging different artists (e.g. Shankar Mahadevan vs Shankar Ehsaan Loy).
+    """
+    if not art1 or not art2:
+        return True
+
+    def get_tokens(s: str) -> list:
+        parts = re.split(r"[,&/+]|\band\b|\bfeat\.?\b|\bft\.?\b|\bfeaturing\b", s, flags=re.IGNORECASE)
+        tokens = []
+        for p in parts:
+            p_clean = re.sub(r"[^\w\s]", "", p).strip().lower()
+            if len(p_clean) >= 3:
+                tokens.append(p_clean)
+        return tokens
+
+    toks1 = get_tokens(art1)
+    toks2 = get_tokens(art2)
+
+    if not toks1 or not toks2:
+        return True
+
+    for t1 in toks1:
+        for t2 in toks2:
+            if t1 == t2:
+                return True
+            if similarity(t1, t2) >= 0.85:
+                return True
+
+    all_words1 = {w for t in toks1 for w in t.split() if len(w) >= 3}
+    all_words2 = {w for t in toks2 for w in t.split() if len(w) >= 3}
+    shared = all_words1.intersection(all_words2)
+
+    COMMON_FIRST_NAMES = {"shankar", "kumar", "singh", "mohammed", "khan", "sharma", "ali", "john", "michael"}
+    if shared.issubset(COMMON_FIRST_NAMES):
+        diff1 = all_words1 - shared
+        diff2 = all_words2 - shared
+        if diff1 and diff2:
+            return False
+
+    return len(shared) > 0
+
 OFFICIAL_LABEL_CHANNELS = [
     "tips official", "tips files", "tips music", "tips i miss u",
     "t-series", "t-series regional", "t-series apna punjab", "tseries",
@@ -214,10 +319,18 @@ def clean_song_title(title: str) -> str:
     return clean.strip()
 
 
-def resolve_jiosaavn_candidate(clean_expected: str, lead_artist: str, expected_title: str, expected_duration: float) -> Optional[Dict[str, Any]]:
+def resolve_jiosaavn_candidate(
+    clean_expected: str,
+    lead_artist: str,
+    expected_title: str,
+    expected_duration: float,
+    expected_album: str = "",
+    all_artists: str = "",
+) -> Optional[Dict[str, Any]]:
     """
-    Queries JioSaavn with Indian localized headers and strictly filters for the original version.
-    Disqualifies any covers, slowed+reverb, remixes, or artist mismatches.
+    Queries JioSaavn with Indian localized headers and strictly filters for the genuine matching version.
+    Disqualifies any covers, slowed+reverb, remixes, artist mismatches, album/movie soundtrack conflicts,
+    or version tag mismatches (e.g. Live vs Studio).
     """
     try:
         saavn_q = f"{clean_expected} {lead_artist}".strip()
@@ -232,7 +345,7 @@ def resolve_jiosaavn_candidate(clean_expected: str, lead_artist: str, expected_t
             return None
             
         c_lower = clean_expected.lower()
-        lead_lower = lead_artist.lower()
+        exp_versions = extract_version_tags(expected_title)
         
         for candidate in s_songs:
             cand_title = candidate.get("title", "")
@@ -243,9 +356,14 @@ def resolve_jiosaavn_candidate(clean_expected: str, lead_artist: str, expected_t
                 continue
                 
             t_lower = cand_title.lower()
-            a_lower = cand_artists.lower()
             
-            # 1. Strict Anti-Noise: Disqualify unwanted keywords unless present in expected_title
+            # 1. Version Tag Integrity: If expected song is Live/Acoustic/Remix, candidate MUST match that version!
+            cand_versions = extract_version_tags(cand_title)
+            if exp_versions != cand_versions:
+                logger.info(f"JioSaavn candidate disqualified (version tag mismatch {cand_versions} != {exp_versions}): '{cand_title}'")
+                continue
+
+            # Anti-noise: disqualify unwanted keywords not present in expected_title
             has_unwanted = False
             for kw in UNWANTED_VERSION_KEYWORDS:
                 if kw in t_lower and kw not in expected_title.lower():
@@ -254,19 +372,30 @@ def resolve_jiosaavn_candidate(clean_expected: str, lead_artist: str, expected_t
             if has_unwanted:
                 logger.info(f"JioSaavn candidate disqualified (unwanted version): '{cand_title}'")
                 continue
-                
-            # 2. Artist Verification: Lead artist must appear in candidate artists
-            if lead_lower and (lead_lower not in a_lower and similarity(lead_lower, a_lower) < 0.35):
-                logger.info(f"JioSaavn candidate disqualified (artist mismatch): '{cand_title}' by '{cand_artists}' != '{lead_artist}'")
-                continue
-                
-            # 3. Title Verification: Clean title similarity or containment
+
+            # 2. Artist Compatibility Verification:
+            target_artist_str = all_artists or lead_artist
+            if target_artist_str and cand_artists:
+                if not are_artists_compatible(cand_artists, target_artist_str):
+                    logger.info(f"JioSaavn candidate disqualified (artist mismatch: '{cand_artists}' != '{target_artist_str}'): '{cand_title}'")
+                    continue
+
+            # 3. Album / Movie Soundtrack Verification:
+            if expected_album:
+                c_cand_album = clean_album_name(candidate.get("album") or candidate.get("more_info", {}).get("album") or "").lower()
+                c_exp_album = clean_album_name(expected_album).lower()
+                if c_cand_album and c_exp_album and not is_generic_album(c_cand_album) and not is_generic_album(c_exp_album):
+                    if c_cand_album != c_exp_album and similarity(c_cand_album, c_exp_album) < 0.65:
+                        logger.info(f"JioSaavn candidate disqualified (album mismatch: cand='{c_cand_album}' != exp='{c_exp_album}'): '{cand_title}'")
+                        continue
+
+            # 4. Title Verification: Clean title similarity or containment
             if c_lower not in t_lower and similarity(c_lower, t_lower) < 0.45:
                 logger.info(f"JioSaavn candidate disqualified (title mismatch): '{cand_title}' != '{clean_expected}'")
                 continue
-                
-            # Valid original candidate found!
-            logger.info(f"JioSaavn validated original candidate: '{cand_title}' by '{cand_artists}' -> {cand_url}")
+
+            # Valid authentic candidate found!
+            logger.info(f"JioSaavn validated authentic candidate: '{cand_title}' by '{cand_artists}' -> {cand_url}")
             return candidate
             
     except Exception as e:
@@ -278,10 +407,11 @@ async def resolve_direct_stream(expected_meta: Dict[str, Any]) -> Optional[Dict[
     """
     Sub-second cold-start resolver.
     Attempts to locate a direct 320kbps CDN stream URL (JioSaavn Akamai/Cloudflare CDN)
-    with strict original version matching. Returns stream URL without blocking on disk download or FFmpeg.
+    with strict version and movie/soundtrack matching. Returns stream URL without blocking on disk download or FFmpeg.
     """
     expected_title = expected_meta.get("title", "")
     expected_artist = expected_meta.get("artist", "")
+    expected_album = expected_meta.get("album", "")
     expected_duration = float(expected_meta.get("duration") or 0)
     
     clean_expected = clean_song_title(expected_title)
@@ -289,8 +419,18 @@ async def resolve_direct_stream(expected_meta: Dict[str, Any]) -> Optional[Dict[
     
     loop = asyncio.get_event_loop()
     
-    # 1. Check JioSaavn CDN
-    candidate = await loop.run_in_executor(None, lambda: resolve_jiosaavn_candidate(clean_expected, lead_artist, expected_title, expected_duration))
+    # 1. Check JioSaavn CDN with strict album, artist & version matching
+    candidate = await loop.run_in_executor(
+        None,
+        lambda: resolve_jiosaavn_candidate(
+            clean_expected,
+            lead_artist,
+            expected_title,
+            expected_duration,
+            expected_album,
+            expected_artist,
+        ),
+    )
     if candidate:
         cand_url = candidate.get("url")
         try:
@@ -305,11 +445,14 @@ async def resolve_direct_stream(expected_meta: Dict[str, Any]) -> Optional[Dict[
                     cdn_url = info.get("url")
                     cand_dur = float(info.get("duration") or 0)
                     
-                    # Duration check: reject if difference > 35% and > 25 seconds
+                    # Strict duration check: reject if difference > 15 seconds (e.g. 4:15 vs 4:39)
                     if expected_duration > 30 and cand_dur > 10:
                         diff = abs(expected_duration - cand_dur)
-                        if diff > 25 and (diff / expected_duration) > 0.35:
-                            logger.warning(f"JioSaavn stream duration mismatch: {cand_dur}s vs expected {expected_duration}s - skipping")
+                        if diff > 15:
+                            logger.warning(
+                                f"JioSaavn stream duration mismatch: {cand_dur}s vs expected {expected_duration}s "
+                                f"(diff {diff:.1f}s > 15s) - skipping to preserve authentic audio version"
+                            )
                             return None
                     
                     return {
@@ -398,8 +541,10 @@ async def smart_download(query: str, expected_meta: Dict[str, Any]):
                 f_audio = MutagenFile(str(potential_path))
                 if f_audio and f_audio.info and f_audio.info.length:
                     act_dur = f_audio.info.length
-                    if expected_duration > 30 and abs(act_dur - expected_duration) > 25 and (abs(act_dur - expected_duration) / expected_duration) > 0.30:
-                        logger.warning(f"Cached file {potential_path.name} is wrong version ({act_dur:.1f}s vs {expected_duration:.1f}s). Purging.")
+                    if expected_duration > 30 and abs(act_dur - expected_duration) > 15:
+                        logger.warning(
+                            f"Cached file {potential_path.name} is wrong version ({act_dur:.1f}s vs expected {expected_duration:.1f}s). Purging."
+                        )
                         potential_path.unlink(missing_ok=True)
                         continue
             except Exception:
@@ -436,12 +581,22 @@ async def smart_download(query: str, expected_meta: Dict[str, Any]):
         except Exception as direct_err:
             logger.warning(f"Direct URL download failed for {direct_url}: {direct_err}")
 
-    # 1. High-speed JioSaavn resolution (strict original version, studio quality)
-    candidate = await loop.run_in_executor(None, lambda: resolve_jiosaavn_candidate(clean_expected, lead_artist, expected_title, expected_duration))
+    # 1. High-speed JioSaavn resolution (strict authentic version, album & singer matching)
+    candidate = await loop.run_in_executor(
+        None,
+        lambda: resolve_jiosaavn_candidate(
+            clean_expected,
+            lead_artist,
+            expected_title,
+            expected_duration,
+            expected_meta.get("album", ""),
+            expected_meta.get("artist", ""),
+        ),
+    )
     if candidate:
         s_url = candidate.get("url")
         if s_url and "jiosaavn.com" in s_url:
-            logger.info(f"Downloading verified original via JioSaavn: '{candidate.get('title')}' -> {s_url}")
+            logger.info(f"Downloading verified authentic version via JioSaavn: '{candidate.get('title')}' -> {s_url}")
             try:
                 with yt_dlp.YoutubeDL(ydl_opts(track_id, prefer_fast=True)) as ydl:
                     data = await loop.run_in_executor(None, lambda: ydl.extract_info(s_url, download=True))
@@ -460,12 +615,21 @@ async def smart_download(query: str, expected_meta: Dict[str, Any]):
             except Exception as saavn_err:
                 logger.info(f"JioSaavn download failed, falling back to YouTube: {saavn_err}")
 
-    # 2. Strict Official-First YouTube Search
-    search_queries = [
-        f"{clean_expected} {lead_artist} Official",
-        f"{clean_expected} {lead_artist} - Topic",
-        f"{clean_expected} {lead_artist}",
-    ]
+    # 2. Strict Official-First YouTube Search (aware of version tags and album soundtrack)
+    exp_version_tags = extract_version_tags(expected_title)
+    search_queries = []
+    if exp_version_tags:
+        # Specific version requested (e.g. Live from the Royal Albert Hall, Acoustic, Remix)
+        search_queries.append(f"{expected_title} {lead_artist}")
+        search_queries.append(f"{expected_title} Official")
+        search_queries.append(f"{clean_expected} {' '.join(exp_version_tags)} {lead_artist}")
+    else:
+        # Standard studio track
+        if clean_album and not is_generic_album(clean_album):
+            search_queries.append(f"{clean_expected} {clean_album} {lead_artist}")
+        search_queries.append(f"{clean_expected} {lead_artist} Official")
+        search_queries.append(f"{clean_expected} {lead_artist} - Topic")
+        search_queries.append(f"{clean_expected} {lead_artist}")
 
     for q in search_queries:
         try:
@@ -489,23 +653,40 @@ async def smart_download(query: str, expected_meta: Dict[str, Any]):
                     t_lower = title.lower()
                     u_lower = uploader.lower()
                     c_lower = clean_expected.lower()
+                    desc_lower = entry.get("description", "").lower() if entry.get("description") else ""
 
                     score = 0.0
 
-                    # 1. Anti-Noise Disqualification: check unwanted keywords
+                    # 1. Version Matching & Penalties
+                    yt_version_tags = extract_version_tags(t_lower)
+                    if exp_version_tags:
+                        matched_v = False
+                        for vt in exp_version_tags:
+                            if vt in yt_version_tags or vt in t_lower:
+                                matched_v = True
+                                break
+                        if matched_v:
+                            score += 6.0  # Massive boost for genuine matching version!
+                        else:
+                            score -= 12.0  # Disqualify standard studio tracks when live/acoustic is requested
+                    else:
+                        if yt_version_tags:
+                            score -= 10.0  # Disqualify live/acoustic/remixes when standard studio is requested
+
+                    # Anti-Noise Disqualification: check unwanted keywords
                     has_unwanted = False
                     for kw in UNWANTED_VERSION_KEYWORDS:
                         if kw in t_lower and kw not in expected_title.lower():
                             has_unwanted = True
                             break
                     if has_unwanted:
-                        score -= 10.0  # Disqualify remixes, covers, slowed+reverbs, etc.
+                        score -= 10.0
 
                     # 2. Official Channel & Label Boosts
                     if u_lower.endswith("- topic"):
-                        score += 3.0  # Official YouTube Music release!
+                        score += 3.0 if not exp_version_tags else 0.0
                     elif any(lbl in u_lower for lbl in OFFICIAL_LABEL_CHANNELS):
-                        score += 2.5  # Official Record Label! (Tips, T-Series, UR Debut, Sony, Zee, etc.)
+                        score += 2.5
                     elif "official" in u_lower or "vevo" in u_lower:
                         score += 1.5
 
@@ -527,40 +708,51 @@ async def smart_download(query: str, expected_meta: Dict[str, Any]):
                         if sim > 0.6:
                             score += sim * 0.8
                         else:
-                            score -= 2.0  # Penalize title mismatch
+                            score -= 2.0
 
-                    # 4. Album / Movie OST match boost (e.g. Prince for Tere Liye)
-                    if clean_album and clean_album.lower() in t_lower:
-                        score += 1.0
+                    # 4. Album / Movie OST match boost & conflict penalty
+                    if clean_album and not is_generic_album(clean_album):
+                        c_alb_lower = clean_album.lower()
+                        if c_alb_lower in t_lower or c_alb_lower in desc_lower:
+                            score += 4.0
+                        else:
+                            # Disqualify known movie soundtrack mismatches for same-title songs
+                            if "chandni chowk" in t_lower and "khan" in c_alb_lower:
+                                score -= 10.0
+                            elif "my name is khan" in t_lower and "chandni" in c_alb_lower:
+                                score -= 10.0
 
-                    # 5. Strict Artist Matching & Penalty
-                    artist_parts = [p.strip().lower() for p in re.split(r"[,&/]", expected_artist) if len(p.strip()) >= 3]
+                    # 5. Strict Artist & Singer Matching
+                    artist_parts = [p.strip().lower() for p in re.split(r"[,&/+]|\band\b", expected_artist) if len(p.strip()) >= 3]
                     artist_matched = False
                     if artist_parts:
-                        desc_lower = entry.get("description", "").lower() if entry.get("description") else ""
                         for ap in artist_parts:
                             if ap in t_lower or ap in u_lower or ap in desc_lower:
                                 artist_matched = True
-                                score += 1.0
+                                score += 2.0
                                 break
                         if not artist_matched:
-                            # None of the song's artists appear in title or uploader!
-                            # Heavily penalize to avoid downloading completely different songs with the same name (e.g. "Finding Her")
-                            score -= 4.0
+                            score -= 5.0
+
+                    # Specific singer check for same-title songs (e.g. Shreya Ghoshal vs Shafqat Amanat Ali)
+                    if "shafqat" in expected_artist.lower():
+                        if "shreya" in t_lower or "shreya" in desc_lower:
+                            score -= 10.0
+                    elif "shreya" in expected_artist.lower():
+                        if "shafqat" in t_lower or "shafqat" in desc_lower:
+                            score -= 10.0
 
                     # 6. Duration Verification (Strict)
                     if expected_duration > 0 and yt_duration > 0:
                         diff = abs(expected_duration - yt_duration)
-                        ratio = diff / expected_duration
-                        if diff <= 8:
-                            score += 1.0  # Exact match
-                        elif diff <= 20:
-                            score += 0.4
-                        elif ratio > 0.35 and diff > 30:
-                            # Disqualify truncated previews (1:23 vs 3:53) or looped compilations
-                            score -= 10.0
-                        elif diff > 40:
+                        if diff <= 6:
+                            score += 2.0  # Exact match
+                        elif diff <= 12:
+                            score += 1.0
+                        elif diff > 15:
                             score -= 3.0
+                        if diff > 20:
+                            score -= 8.0
 
                     matches.append((score, entry))
 
@@ -719,7 +911,8 @@ def resolve_song_cover_and_album(
             lead_artist = artist.split(",")[0].strip() if artist else ""
             clean_t = re.sub(r"\(.*?\)|\[.*?\]", "", title).strip()
             clean_t = clean_t.split("-")[0].strip() if "-" in clean_t else clean_t
-            query_str = f"{clean_t} {lead_artist}".strip()
+            c_alb = clean_album_name(current_album) if current_album and not is_generic_album(current_album) else ""
+            query_str = f"{clean_t} {c_alb} {lead_artist}".strip() if c_alb else f"{clean_t} {lead_artist}".strip()
             q = urllib.parse.quote(query_str)
             itunes_url = f"https://itunes.apple.com/search?term={q}&media=music&entity=song&limit=1"
             res = requests.get(itunes_url, timeout=4)
@@ -743,7 +936,7 @@ def resolve_song_cover_and_album(
         try:
             clean_t = clean_song_title(title)
             lead_artist = artist.split(",")[0].strip() if artist else ""
-            cand = resolve_jiosaavn_candidate(clean_t, lead_artist, title, 0)
+            cand = resolve_jiosaavn_candidate(clean_t, lead_artist, title, 0, current_album, artist)
             if cand:
                 if not cover and cand.get("image"):
                     img = cand["image"].replace("50x50.jpg", "500x500.jpg").replace("150x150.jpg", "500x500.jpg")

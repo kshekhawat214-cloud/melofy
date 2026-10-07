@@ -53,14 +53,31 @@ def verify_and_clean_audio_cache():
                         if mf and mf.info and mf.info.length:
                             act_dur = mf.info.length
                             diff = abs(act_dur - song.duration)
-                            if diff > 25 and (diff / song.duration) > 0.30:
-                                logger.warning(f"Startup clean: Purging mismatched cache {f.name} ({act_dur:.1f}s vs {song.duration:.1f}s)")
+                            if diff > 15:
+                                logger.warning(f"Startup clean: Purging mismatched cache {f.name} ({act_dur:.1f}s vs expected {song.duration:.1f}s, diff {diff:.1f}s > 15s)")
                                 f.unlink(missing_ok=True)
-                                song.audio_path = None
+                                song.audio_path = ""
                                 db.commit()
                                 cleaned += 1
                     except Exception:
                         pass
+        
+        # Self-heal metadata for same-title songs and separate versions
+        p_song = db.query(Song).filter(Song.id == "pBMmMAlnhss").first()
+        if p_song:
+            if p_song.album != "My Name Is Khan" or "Shafqat" not in p_song.artist:
+                p_song.album = "My Name Is Khan"
+                p_song.artist = "Shankar-Ehsaan-Loy, Shafqat Amanat Ali"
+                p_song.audio_path = ""
+                db.commit()
+
+        ts_live = db.query(Song).filter(Song.id == "4jiOgEp2ZPjzoUF5DxaOjG").first()
+        if ts_live:
+            if "Royal Albert Hall" not in (ts_live.album or ""):
+                ts_live.album = "Dua Lipa - Live from the Royal Albert Hall"
+                ts_live.audio_path = ""
+                db.commit()
+
         db.close()
         if cleaned > 0:
             logger.info(f"Startup audio verification: cleaned {cleaned} mismatched cache files.")

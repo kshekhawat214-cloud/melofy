@@ -113,10 +113,10 @@ async def stream_audio(song_id: str, background_tasks: BackgroundTasks, db: Sess
                 if f_audio and f_audio.info and f_audio.info.length:
                     actual_dur = f_audio.info.length
                     diff = abs(actual_dur - song.duration)
-                    if diff > 25 and (diff / song.duration) > 0.30:
+                    if diff > 15:
                         logger.warning(
                             f"Purging mismatched audio version for '{song.title}' "
-                            f"({actual_dur:.1f}s vs expected {song.duration:.1f}s) -> re-resolving genuine original!"
+                            f"({actual_dur:.1f}s vs expected {song.duration:.1f}s, diff {diff:.1f}s > 15s) -> re-resolving authentic audio!"
                         )
                         path.unlink(missing_ok=True)
                         path = None

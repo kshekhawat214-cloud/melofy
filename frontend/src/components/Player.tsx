@@ -68,6 +68,14 @@ export default function Player() {
   const [isBuffering, setIsBuffering] = useState(false)
   const [isMobileNowPlayingOpen, setIsMobileNowPlayingOpen] = useState(false)
 
+  // Spotify-grade smooth scrubbing & dragging state
+  const [isDraggingProgress, setIsDraggingProgress] = useState(false)
+  const [dragProgress, setDragProgress] = useState(0)
+  const isDraggingProgressRef = useRef(false)
+  const dragProgressRef = useRef(0)
+  isDraggingProgressRef.current = isDraggingProgress
+  dragProgressRef.current = dragProgress
+
   const isLiked = currentSong ? likedSongIds.has(currentSong.id) : false
 
   // Hydrate user settings from localStorage on client mount
@@ -264,7 +272,9 @@ export default function Player() {
   const handleTimeUpdate = () => {
     if (audioRef.current) {
       const cur = audioRef.current.currentTime
-      setProgress(cur)
+      if (!isDraggingProgressRef.current) {
+        setProgress(cur)
+      }
       if (previousSongRef.current) {
         previousSongRef.current.progress = cur
       }
@@ -297,54 +307,85 @@ export default function Player() {
     return `${min}:${sec < 10 ? "0" : ""}${sec}`
   }
 
-  const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!audioRef.current) return
-    const bounds = e.currentTarget.getBoundingClientRect()
-    const x = e.clientX - bounds.left
-    const percentage = Math.max(0, Math.min(1, x / bounds.width))
-    const target = percentage * (duration || 1)
-    audioRef.current.currentTime = target
-    setProgress(target)
-  }
-
-  const handleVolumeSeek = (e: React.MouseEvent<HTMLDivElement>) => {
-    const bounds = e.currentTarget.getBoundingClientRect()
-    const x = e.clientX - bounds.left
-    const percentage = Math.max(0, Math.min(1, x / bounds.width))
-    setVolume(percentage)
-    if (audioRef.current) {
-      audioRef.current.volume = percentage
+  // Spotify-grade smooth scrubbing & dragging for mouse and touch
+  const startProgressDrag = (clientX: number, targetBar: HTMLDivElement) => {
+    const bounds = targetBar.getBoundingClientRect()
+    const calcTime = (x: number) => {
+      const percentage = Math.max(0, Math.min(1, (x - bounds.left) / bounds.width))
+      return percentage * (duration || 1)
     }
-  }
 
-  const startDragging = (e: React.MouseEvent, type: "volume" | "progress") => {
-    const target = e.currentTarget as HTMLDivElement
-    const bounds = target.getBoundingClientRect()
+    const initialTime = calcTime(clientX)
+    setIsDraggingProgress(true)
+    setDragProgress(initialTime)
+    dragProgressRef.current = initialTime
 
-    const handleMove = (moveEvent: MouseEvent) => {
-      const x = moveEvent.clientX - bounds.left
-      const percentage = Math.max(0, Math.min(1, x / bounds.width))
+    const onPointerMove = (e: MouseEvent | TouchEvent) => {
+      const currentX = "touches" in e ? e.touches[0].clientX : e.clientX
+      const newTime = calcTime(currentX)
+      setDragProgress(newTime)
+      dragProgressRef.current = newTime
+    }
 
-      if (type === "volume") {
-        setVolume(percentage)
-        if (audioRef.current) {
-          audioRef.current.volume = percentage
+    const onPointerUp = () => {
+      window.removeEventListener("mousemove", onPointerMove)
+      window.removeEventListener("mouseup", onPointerUp)
+      window.removeEventListener("touchmove", onPointerMove)
+      window.removeEventListener("touchend", onPointerUp)
+      window.removeEventListener("touchcancel", onPointerUp)
+
+      const finalTime = dragProgressRef.current
+      if (audioRef.current) {
+        try {
+          audioRef.current.currentTime = finalTime
+        } catch (err) {
+          console.warn("Audio seek error:", err)
         }
-      } else if (type === "progress" && audioRef.current) {
-        const time = percentage * (duration || 1)
-        audioRef.current.currentTime = time
-        setProgress(time)
       }
+      setProgress(finalTime)
+      setIsDraggingProgress(false)
     }
 
-    const stopDragging = () => {
-      window.removeEventListener("mousemove", handleMove)
-      window.removeEventListener("mouseup", stopDragging)
-    }
-
-    window.addEventListener("mousemove", handleMove)
-    window.addEventListener("mouseup", stopDragging)
+    window.addEventListener("mousemove", onPointerMove)
+    window.addEventListener("mouseup", onPointerUp)
+    window.addEventListener("touchmove", onPointerMove, { passive: false })
+    window.addEventListener("touchend", onPointerUp)
+    window.addEventListener("touchcancel", onPointerUp)
   }
+
+  // Smooth volume scrubbing for mouse and touch
+  const startVolumeDrag = (clientX: number, targetBar: HTMLDivElement) => {
+    const bounds = targetBar.getBoundingClientRect()
+    const calcVol = (x: number) => {
+      return Math.max(0, Math.min(1, (x - bounds.left) / bounds.width))
+    }
+
+    const initialVol = calcVol(clientX)
+    setVolume(initialVol)
+    if (audioRef.current) audioRef.current.volume = isMuted ? 0 : initialVol
+
+    const onPointerMove = (e: MouseEvent | TouchEvent) => {
+      const currentX = "touches" in e ? e.touches[0].clientX : e.clientX
+      const newVol = calcVol(currentX)
+      setVolume(newVol)
+      if (audioRef.current) audioRef.current.volume = isMuted ? 0 : newVol
+    }
+
+    const onPointerUp = () => {
+      window.removeEventListener("mousemove", onPointerMove)
+      window.removeEventListener("mouseup", onPointerUp)
+      window.removeEventListener("touchmove", onPointerMove)
+      window.removeEventListener("touchend", onPointerUp)
+    }
+
+    window.addEventListener("mousemove", onPointerMove)
+    window.addEventListener("mouseup", onPointerUp)
+    window.addEventListener("touchmove", onPointerMove, { passive: false })
+    window.addEventListener("touchend", onPointerUp)
+  }
+
+  const displayProgress = isDraggingProgress ? dragProgress : progress
+  const progressPercent = Math.max(0, Math.min(100, (displayProgress / (duration || 1)) * 100))
 
   const coverUrl = getSongCover(currentSong, 300)
 
@@ -531,18 +572,28 @@ export default function Player() {
             {/* Scrubber Progress Bar */}
             <div className="space-y-1">
               <div
-                onClick={handleSeek}
-                className="h-2 bg-white/20 rounded-full cursor-pointer relative flex items-center"
+                onMouseDown={(e) => {
+                  e.preventDefault()
+                  startProgressDrag(e.clientX, e.currentTarget)
+                }}
+                onTouchStart={(e) => {
+                  if (e.touches.length > 0) {
+                    startProgressDrag(e.touches[0].clientX, e.currentTarget)
+                  }
+                }}
+                className="py-3 -my-2.5 bg-transparent cursor-pointer relative flex items-center touch-none select-none group"
               >
-                <div
-                  className="h-full bg-[#1db954] rounded-full relative"
-                  style={{ width: `${(progress / (duration || 1)) * 100}%` }}
-                >
-                  <div className="w-3.5 h-3.5 bg-white rounded-full absolute -right-1.5 top-1/2 -translate-y-1/2 shadow-md" />
+                <div className="w-full h-1.5 bg-white/20 rounded-full relative overflow-visible">
+                  <div
+                    className="h-full bg-[#1db954] rounded-full relative"
+                    style={{ width: `${progressPercent}%` }}
+                  >
+                    <div className="w-3.5 h-3.5 bg-white rounded-full absolute -right-1.5 top-1/2 -translate-y-1/2 shadow-md active:scale-125 transition-transform" />
+                  </div>
                 </div>
               </div>
               <div className="flex justify-between text-xs font-mono text-[#b3b3b3]">
-                <span>{formatTime(progress)}</span>
+                <span>{formatTime(displayProgress)}</span>
                 <span>{formatTime(duration)}</span>
               </div>
             </div>
@@ -747,29 +798,38 @@ export default function Player() {
 
           {/* Progress Bar & Durations */}
           <div className="flex items-center w-full space-x-2 text-xs font-mono text-[#a7a7a7]">
-            <span className="min-w-[34px] text-right">{formatTime(progress)}</span>
+            <span className="min-w-[34px] text-right">{formatTime(displayProgress)}</span>
             <div
-              onMouseDown={(e) => startDragging(e, "progress")}
-              onClick={handleSeek}
+              onMouseDown={(e) => {
+                e.preventDefault()
+                startProgressDrag(e.clientX, e.currentTarget)
+              }}
+              onTouchStart={(e) => {
+                if (e.touches.length > 0) {
+                  startProgressDrag(e.touches[0].clientX, e.currentTarget)
+                }
+              }}
               onMouseEnter={() => setIsHoveringProgress(true)}
               onMouseLeave={() => setIsHoveringProgress(false)}
               suppressHydrationWarning
-              className="h-1 hover:h-1.5 bg-[#4d4d4d] rounded-full flex-grow relative cursor-pointer max-w-[500px] transition-all"
+              className="py-2.5 -my-2.5 flex items-center flex-grow max-w-[500px] cursor-pointer group/progress touch-none select-none"
             >
-              <div
-                suppressHydrationWarning
-                className={`h-full absolute top-0 left-0 rounded-full transition-colors ${
-                  isHoveringProgress ? "bg-[#1db954]" : "bg-white"
-                }`}
-                style={{ width: `${(progress / (duration || 1)) * 100}%` }}
-              />
-              {isHoveringProgress && (
+              <div className="h-1 group-hover/progress:h-1.5 bg-[#4d4d4d] rounded-full w-full relative transition-all">
                 <div
                   suppressHydrationWarning
-                  className="absolute w-3 h-3 bg-white rounded-full -top-0.5 shadow-md transform -translate-x-1/2"
-                  style={{ left: `${(progress / (duration || 1)) * 100}%` }}
+                  className={`h-full absolute top-0 left-0 rounded-full transition-colors ${
+                    isHoveringProgress || isDraggingProgress ? "bg-[#1db954]" : "bg-white"
+                  }`}
+                  style={{ width: `${progressPercent}%` }}
                 />
-              )}
+                {(isHoveringProgress || isDraggingProgress) && (
+                  <div
+                    suppressHydrationWarning
+                    className="absolute w-3 h-3 bg-white rounded-full -top-1 shadow-md transform -translate-x-1/2"
+                    style={{ left: `${progressPercent}%` }}
+                  />
+                )}
+              </div>
             </div>
             <span className="min-w-[34px]">{formatTime(duration)}</span>
           </div>
@@ -813,27 +873,36 @@ export default function Player() {
               )}
             </button>
             <div
-              onMouseDown={(e) => startDragging(e, "volume")}
-              onClick={handleVolumeSeek}
+              onMouseDown={(e) => {
+                e.preventDefault()
+                startVolumeDrag(e.clientX, e.currentTarget)
+              }}
+              onTouchStart={(e) => {
+                if (e.touches.length > 0) {
+                  startVolumeDrag(e.touches[0].clientX, e.currentTarget)
+                }
+              }}
               onMouseEnter={() => setIsHoveringVolume(true)}
               onMouseLeave={() => setIsHoveringVolume(false)}
               suppressHydrationWarning
-              className="h-1 hover:h-1.5 bg-[#4d4d4d] rounded-full flex-grow cursor-pointer relative transition-all"
+              className="py-2.5 -my-2.5 flex items-center flex-grow cursor-pointer group/volume touch-none select-none"
             >
-              <div
-                suppressHydrationWarning
-                className={`h-full absolute top-0 left-0 rounded-full transition-colors ${
-                  isHoveringVolume ? "bg-[#1db954]" : "bg-white"
-                }`}
-                style={{ width: `${(isMuted ? 0 : volume) * 100}%` }}
-              />
-              {isHoveringVolume && (
+              <div className="h-1 group-hover/volume:h-1.5 bg-[#4d4d4d] rounded-full w-full relative transition-all">
                 <div
                   suppressHydrationWarning
-                  className="absolute w-3 h-3 bg-white rounded-full -top-0.5 shadow-md transform -translate-x-1/2"
-                  style={{ left: `${(isMuted ? 0 : volume) * 100}%` }}
+                  className={`h-full absolute top-0 left-0 rounded-full transition-colors ${
+                    isHoveringVolume ? "bg-[#1db954]" : "bg-white"
+                  }`}
+                  style={{ width: `${(isMuted ? 0 : volume) * 100}%` }}
                 />
-              )}
+                {isHoveringVolume && (
+                  <div
+                    suppressHydrationWarning
+                    className="absolute w-3 h-3 bg-white rounded-full -top-1 shadow-md transform -translate-x-1/2"
+                    style={{ left: `${(isMuted ? 0 : volume) * 100}%` }}
+                  />
+                )}
+              </div>
             </div>
           </div>
 
