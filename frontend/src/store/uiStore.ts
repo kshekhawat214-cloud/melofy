@@ -1,5 +1,6 @@
 import { create } from 'zustand'
-import { Song, Playlist, getPlaylists, getLikedSongIds, likeSong, unlikeSong } from '@/lib/api'
+import { Song, Playlist, getPlaylists, getLikedSongIds, likeSong, unlikeSong, getCachedPlaylists, getCachedLikedIds } from '@/lib/api'
+import { SEED_PLAYLISTS } from '@/lib/seedCatalog'
 
 export interface Toast {
   id: string
@@ -136,8 +137,16 @@ export const useUIStore = create<UIState>((set, get) => ({
 
   likedSongIds: new Set<string>(),
   loadLikedSongIds: async () => {
+    if (get().likedSongIds.size === 0) {
+      const cached = getCachedLikedIds()
+      if (cached.length > 0) {
+        set({ likedSongIds: new Set(cached) })
+      }
+    }
     const ids = await getLikedSongIds()
-    set({ likedSongIds: new Set(ids) })
+    if (ids && ids.length >= 0) {
+      set({ likedSongIds: new Set(ids) })
+    }
   },
   toggleLikeSong: async (song: Song) => {
     const { likedSongIds, addToast } = get()
@@ -161,8 +170,25 @@ export const useUIStore = create<UIState>((set, get) => ({
 
   playlists: [],
   loadPlaylists: async () => {
+    // 1. Immediately hydrate from cache or seed catalog so sidebar is never empty
+    if (get().playlists.length === 0) {
+      const cached = getCachedPlaylists()
+      if (cached.length > 0) {
+        set({ playlists: cached })
+      } else if (SEED_PLAYLISTS.length > 0) {
+        set({ playlists: SEED_PLAYLISTS })
+      }
+    }
+    // 2. Fetch fresh playlists from server
     const pls = await getPlaylists()
-    set({ playlists: pls })
+    if (pls && pls.length > 0) {
+      set({ playlists: pls })
+    } else if (get().playlists.length === 0) {
+      // Backend may be cold starting; auto-retry after 2.5s
+      setTimeout(() => {
+        get().loadPlaylists()
+      }, 2500)
+    }
   },
 }))
 

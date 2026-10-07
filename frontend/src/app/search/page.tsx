@@ -2,7 +2,8 @@
 import { useState, useEffect } from "react"
 import Header from "@/components/Header"
 import { Search as SearchIcon, X, Play, Clock3, Heart, Music, User, Disc } from "lucide-react"
-import { searchCatalog, getGenres, SearchResult, Genre, Song, API_BASE, getSongCover } from "@/lib/api"
+import { searchCatalog, getGenres, SearchResult, Genre, Song, API_BASE, getSongCover, getCachedGenres } from "@/lib/api"
+import { SEED_GENRES } from "@/lib/seedCatalog"
 import { usePlayerStore } from "@/store/playerStore"
 import { useUIStore } from "@/store/uiStore"
 import Link from "next/link"
@@ -13,7 +14,7 @@ export default function SearchPage() {
 
   const [query, setQuery] = useState("")
   const [filterType, setFilterType] = useState<"all" | "songs" | "artists" | "albums" | "playlists">("all")
-  const [genres, setGenres] = useState<Genre[]>([])
+  const [genres, setGenres] = useState<Genre[]>(SEED_GENRES)
   const [results, setResults] = useState<SearchResult | null>(null)
   const [isSearching, setIsSearching] = useState(false)
   const [recentSearches, setRecentSearches] = useState<string[]>(() => {
@@ -26,9 +27,14 @@ export default function SearchPage() {
     }
   })
 
-  // Load genres
+  // Hydrate genres from cache and revalidate from server
   useEffect(() => {
-    getGenres().then(setGenres)
+    const cached = getCachedGenres()
+    if (cached.length > 0) setGenres(cached)
+
+    getGenres().then((data) => {
+      if (data && data.length > 0) setGenres(data)
+    })
   }, [])
 
   // Debounced search

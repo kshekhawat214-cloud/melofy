@@ -143,25 +143,130 @@ export function getCurrentUserId(): string {
   return "1"
 }
 
+/**
+ * Robust fetch wrapper with exponential backoff & timeout to handle Render cold-starts gracefully.
+ */
+export async function fetchWithRetry(
+  input: RequestInfo | URL,
+  init?: RequestInit,
+  retries: number = 2,
+  backoffMs: number = 1200,
+  timeoutMs: number = 10000
+): Promise<Response> {
+  let lastError: any = null
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), timeoutMs)
+    try {
+      const res = await fetch(input, {
+        ...init,
+        signal: controller.signal,
+      })
+      clearTimeout(timer)
+      // Retry automatically on common Render spin-up errors (502 Bad Gateway, 503, 504)
+      if ([502, 503, 504].includes(res.status) && attempt < retries) {
+        await new Promise((r) => setTimeout(r, backoffMs * (attempt + 1)))
+        continue
+      }
+      return res
+    } catch (err: any) {
+      clearTimeout(timer)
+      lastError = err
+      if (attempt < retries) {
+        await new Promise((r) => setTimeout(r, backoffMs * (attempt + 1)))
+      }
+    }
+  }
+  throw lastError || new Error("Network request failed after retries")
+}
+
+/**
+ * Fires a lightweight health ping to wake up the backend container immediately upon app mount.
+ */
+let hasPingedBackend = false
+export function pingBackend(): void {
+  if (hasPingedBackend || typeof window === "undefined") return
+  hasPingedBackend = true
+  fetchWithRetry(`${API_BASE}/api/health`, { method: "GET" }, 1, 1000, 6000).catch(() => {})
+}
+
+// --- Local Storage Cache Getters (Stale-While-Revalidate) ---
+export function getCachedHomeFeed(): Shelf[] {
+  if (typeof window === "undefined") return []
+  try {
+    const cached = localStorage.getItem("tunely_cache_home_feed")
+    if (cached) {
+      const parsed = JSON.parse(cached)
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed
+    }
+  } catch {}
+  return []
+}
+
+export function getCachedPlaylists(): Playlist[] {
+  if (typeof window === "undefined") return []
+  try {
+    const cached = localStorage.getItem("tunely_cache_playlists")
+    if (cached) {
+      const parsed = JSON.parse(cached)
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed
+    }
+  } catch {}
+  return []
+}
+
+export function getCachedLikedIds(): string[] {
+  if (typeof window === "undefined") return []
+  try {
+    const cached = localStorage.getItem("tunely_cache_liked_ids")
+    if (cached) {
+      const parsed = JSON.parse(cached)
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed
+    }
+  } catch {}
+  return []
+}
+
+export function getCachedGenres(): Genre[] {
+  if (typeof window === "undefined") return []
+  try {
+    const cached = localStorage.getItem("tunely_cache_genres")
+    if (cached) {
+      const parsed = JSON.parse(cached)
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed
+    }
+  } catch {}
+  return []
+}
+
 // --- Home Feed & Songs ---
 export async function getHomeFeed(userId?: string): Promise<Shelf[]> {
   try {
     const uid = userId || getCurrentUserId()
-    const res = await fetch(`${API_BASE}/api/home/${uid}`, {
+    const res = await fetchWithRetry(`${API_BASE}/api/home/${uid}`, {
       headers: getAuthHeaders(),
       cache: "no-store",
-    })
+    }, 2, 1200, 10000)
     if (!res.ok) throw new Error("Failed to fetch home feed")
     const data = await res.json()
-    return data.shelves as Shelf[]
-  } catch {
+    if (data.shelves && Array.isArray(data.shelves) && data.shelves.length > 0) {
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.setItem("tunely_cache_home_feed", JSON.stringify(data.shelves))
+        } catch {}
+      }
+      return data.shelves as Shelf[]
+    }
+    return []
+  } catch (e) {
+    console.warn("Home feed network notice:", e)
     return []
   }
 }
 
 export async function getAllSongs(): Promise<Song[]> {
   try {
-    const res = await fetch(`${API_BASE}/api/songs`, { cache: "no-store" })
+    const res = await fetchWithRetry(`${API_BASE}/api/songs`, { cache: "no-store" }, 1, 1000, 8000)
     if (!res.ok) return []
     return res.json()
   } catch {
@@ -171,7 +276,7 @@ export async function getAllSongs(): Promise<Song[]> {
 
 export async function getSong(songId: string): Promise<Song | null> {
   try {
-    const res = await fetch(`${API_BASE}/api/songs/${songId}`, { cache: "no-store" })
+    const res = await fetchWithRetry(`${API_BASE}/api/songs/${songId}`, { cache: "no-store" }, 1, 1000, 8000)
     if (!res.ok) return null
     return res.json()
   } catch {
@@ -183,12 +288,20 @@ export async function getSong(songId: string): Promise<Song | null> {
 export async function getPlaylists(userId?: string): Promise<Playlist[]> {
   try {
     const uid = userId || getCurrentUserId()
-    const res = await fetch(`${API_BASE}/api/playlists?user_id=${encodeURIComponent(uid)}`, {
+    const res = await fetchWithRetry(`${API_BASE}/api/playlists?user_id=${encodeURIComponent(uid)}`, {
       headers: getAuthHeaders(),
       cache: "no-store",
-    })
+    }, 2, 1200, 10000)
     if (!res.ok) return []
-    return res.json()
+    const data = await res.json()
+    if (Array.isArray(data) && data.length > 0) {
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.setItem("tunely_cache_playlists", JSON.stringify(data))
+        } catch {}
+      }
+    }
+    return data
   } catch {
     return []
   }
@@ -196,10 +309,10 @@ export async function getPlaylists(userId?: string): Promise<Playlist[]> {
 
 export async function getPlaylist(playlistId: string): Promise<Playlist | null> {
   try {
-    const res = await fetch(`${API_BASE}/api/playlists/${playlistId}`, {
+    const res = await fetchWithRetry(`${API_BASE}/api/playlists/${playlistId}`, {
       headers: getAuthHeaders(),
       cache: "no-store",
-    })
+    }, 1, 1000, 8000)
     if (!res.ok) return null
     return res.json()
   } catch {
@@ -343,12 +456,20 @@ export async function getLikedSongs(userId?: string): Promise<{ songs: Song[]; s
 export async function getLikedSongIds(userId?: string): Promise<string[]> {
   try {
     const uid = userId || getCurrentUserId()
-    const res = await fetch(`${API_BASE}/api/me/liked/ids?user_id=${encodeURIComponent(uid)}`, {
+    const res = await fetchWithRetry(`${API_BASE}/api/me/liked/ids?user_id=${encodeURIComponent(uid)}`, {
       headers: getAuthHeaders(),
       cache: "no-store",
-    })
+    }, 2, 1000, 8000)
     if (!res.ok) return []
-    return res.json()
+    const ids = await res.json()
+    if (Array.isArray(ids)) {
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.setItem("tunely_cache_liked_ids", JSON.stringify(ids))
+        } catch {}
+      }
+    }
+    return ids
   } catch {
     return []
   }
@@ -403,9 +524,17 @@ export async function getAlbum(albumId: string): Promise<Album | null> {
 
 export async function getGenres(): Promise<Genre[]> {
   try {
-    const res = await fetch(`${API_BASE}/api/genres`, { cache: "no-store" })
+    const res = await fetchWithRetry(`${API_BASE}/api/genres`, { cache: "no-store" }, 2, 1000, 8000)
     if (!res.ok) return []
-    return res.json()
+    const genres = await res.json()
+    if (Array.isArray(genres) && genres.length > 0) {
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.setItem("tunely_cache_genres", JSON.stringify(genres))
+        } catch {}
+      }
+    }
+    return genres
   } catch {
     return []
   }

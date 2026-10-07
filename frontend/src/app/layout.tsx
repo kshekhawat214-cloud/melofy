@@ -13,6 +13,7 @@ import PlaylistModal from "@/components/PlaylistModal"
 import SettingsModal from "@/components/SettingsModal"
 import ProfileModal from "@/components/ProfileModal"
 import AuthModal from "@/components/AuthModal"
+import BackendWarmup from "@/components/BackendWarmup"
 import "./globals.css"
 
 const inter = Inter({
@@ -75,6 +76,7 @@ export default function RootLayout({
         <QueuePanel />
         <ContextMenu />
         <ToastContainer />
+        <BackendWarmup />
       </body>
     </html>
   )

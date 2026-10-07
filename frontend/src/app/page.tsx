@@ -1,8 +1,9 @@
 "use client"
-import { useEffect, useState, useCallback } from "react"
+import { useEffect, useState, useCallback, useRef } from "react"
 import Header from "@/components/Header"
 import { Play, Pause } from "lucide-react"
-import { getHomeFeed, getPlaylists, Shelf, Song, Playlist, API_BASE, getSongCover } from "@/lib/api"
+import { getHomeFeed, getPlaylists, Shelf, Song, Playlist, API_BASE, getSongCover, getCachedHomeFeed, getCachedPlaylists } from "@/lib/api"
+import { SEED_SHELVES, SEED_PLAYLISTS } from "@/lib/seedCatalog"
 import { usePlayerStore } from "@/store/playerStore"
 import { useUIStore } from "@/store/uiStore"
 import { useAuthStore } from "@/store/authStore"
@@ -69,31 +70,55 @@ function SongCard({ song, shelfSongs }: { song: Song; shelfSongs: Song[] }) {
   )
 }
 
-let cachedShelves: Shelf[] = []
-let cachedPlaylists: Playlist[] = []
-
 export default function Home() {
   const { currentSong, isPlaying, playSongWithQueue, togglePlay } = usePlayerStore()
   const { user } = useAuthStore()
-  const [shelves, setShelves] = useState<Shelf[]>(cachedShelves)
-  const [playlists, setPlaylists] = useState<Playlist[]>(cachedPlaylists)
-  const [loading, setLoading] = useState(cachedShelves.length === 0)
+
+  // Initialize with seed catalog so the app loads 100% full immediately on frame 1 (zero blank screens)
+  const [shelves, setShelves] = useState<Shelf[]>(SEED_SHELVES)
+  const [playlists, setPlaylists] = useState<Playlist[]>(SEED_PLAYLISTS)
+  const retryTimerRef = useRef<NodeJS.Timeout | null>(null)
+
+  // Hydrate from localStorage cache on client mount
+  useEffect(() => {
+    const cachedFeed = getCachedHomeFeed()
+    const cachedPls = getCachedPlaylists()
+    if (cachedFeed.length > 0) setShelves(cachedFeed)
+    if (cachedPls.length > 0) setPlaylists(cachedPls)
+  }, [])
 
   const loadData = useCallback(async () => {
     try {
       const uid = user?.id || "1"
       const [feed, pls] = await Promise.all([getHomeFeed(uid), getPlaylists(uid)])
-      cachedShelves = feed
-      cachedPlaylists = pls
-      setShelves(feed)
-      setPlaylists(pls)
-    } finally {
-      setLoading(false)
+
+      if (feed && feed.length > 0) {
+        setShelves(feed)
+      }
+      if (pls && pls.length > 0) {
+        setPlaylists(pls)
+      }
+
+      // If backend was sleeping or cold starting and returned empty, auto-retry in background
+      if ((!feed || feed.length === 0) && (!pls || pls.length === 0)) {
+        if (retryTimerRef.current) clearTimeout(retryTimerRef.current)
+        retryTimerRef.current = setTimeout(() => {
+          loadData()
+        }, 3000)
+      }
+    } catch {
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current)
+      retryTimerRef.current = setTimeout(() => {
+        loadData()
+      }, 3500)
     }
   }, [user?.id])
 
   useEffect(() => {
     loadData()
+    return () => {
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current)
+    }
   }, [loadData])
 
   useEffect(() => {
@@ -110,21 +135,15 @@ export default function Home() {
   // Deduplicate for quick-access tiles
   const quickAccessSongs = Array.from(new Map(allSongs.map((s) => [s.id, s])).values()).slice(0, 8)
 
-  if (loading && shelves.length === 0) {
-    return (
-      <div className="flex-1 flex items-center justify-center bg-[#121212] h-full">
-        <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-[#1db954]" />
-      </div>
-    )
-  }
-
   return (
     <div id="main-scroll-container" className="flex-1 overflow-y-auto bg-gradient-to-b from-[#1e3264]/60 via-[#121212] to-[#121212] h-full relative scroll-smooth text-white scrollbar-hidden">
       <Header />
 
       <main className="p-6 pb-36 space-y-8">
         {/* Top Greeting */}
-        <h1 className="text-3xl font-extrabold tracking-tight text-white mb-5">{greeting}</h1>
+        <h1 suppressHydrationWarning className="text-3xl font-extrabold tracking-tight text-white mb-5">
+          {greeting}
+        </h1>
 
         {/* 2x4 Quick Access Grid */}
         {quickAccessSongs.length > 0 && (
