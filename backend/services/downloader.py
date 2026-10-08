@@ -450,11 +450,11 @@ async def resolve_direct_stream(expected_meta: Dict[str, Any]) -> Optional[Dict[
                 "socket_timeout": 15,
                 "extractor_args": {
                     "youtube": {
-                        "player_client": ["android", "ios", "mweb", "web"],
+                        "player_client": ["android", "ios"],
                     }
                 },
                 "http_headers": {
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                    "User-Agent": "com.google.android.youtube/19.29.37 (Linux; U; Android 14; en_US) gzip",
                 },
             }
             with yt_dlp.YoutubeDL(ydl_opts_source) as ydl:
@@ -537,11 +537,11 @@ async def resolve_direct_stream(expected_meta: Dict[str, Any]) -> Optional[Dict[
             "socket_timeout": 15,
             "extractor_args": {
                 "youtube": {
-                    "player_client": ["android", "ios", "mweb", "web"],
+                    "player_client": ["android", "ios"],
                 }
             },
             "http_headers": {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                "User-Agent": "com.google.android.youtube/19.29.37 (Linux; U; Android 14; en_US) gzip",
             },
         }
         with yt_dlp.YoutubeDL(ydl_opts_yt) as ydl:
@@ -628,11 +628,11 @@ def ydl_opts(track_id, prefer_fast=True):
         "ffmpeg_location": ffmpeg_path,
         "extractor_args": {
             "youtube": {
-                "player_client": ["android", "ios", "mweb", "web"],
+                "player_client": ["android", "ios"],
             }
         },
         "http_headers": {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            "User-Agent": "com.google.android.youtube/19.29.37 (Linux; U; Android 14; en_US) gzip",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         }
     }
