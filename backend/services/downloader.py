@@ -442,6 +442,12 @@ async def resolve_direct_stream(expected_meta: Dict[str, Any]) -> Optional[Dict[
     # Tier 1: Immediate Direct Stream from existing source_url (if YouTube / soundcloud / direct link)
     if source_url and "spotify.com" not in source_url and ("youtube.com" in source_url or "youtu.be" in source_url):
         try:
+            node_path = _get_node_path()
+            if node_path:
+                node_dir = os.path.dirname(node_path)
+                if node_dir not in os.environ.get("PATH", ""):
+                    os.environ["PATH"] = node_dir + os.pathsep + os.environ.get("PATH", "")
+
             ydl_opts_source = {
                 "format": "ba[abr<=160]/bestaudio/best",
                 "quiet": True,
@@ -450,27 +456,34 @@ async def resolve_direct_stream(expected_meta: Dict[str, Any]) -> Optional[Dict[
                 "socket_timeout": 15,
                 "extractor_args": {
                     "youtube": {
-                        "player_client": ["android", "ios"],
+                        "player_client": ["web", "android"],
                     }
                 },
-                "http_headers": {
-                    "User-Agent": "com.google.android.youtube/19.29.37 (Linux; U; Android 14; en_US) gzip",
-                },
             }
+            if node_path:
+                ydl_opts_source["javascript_runtime"] = node_path
+
             with yt_dlp.YoutubeDL(ydl_opts_source) as ydl:
                 info = await loop.run_in_executor(None, lambda: ydl.extract_info(source_url, download=False))
-                if info and info.get("url"):
+                stream_url = info.get("url") if info else None
+                if not stream_url and info and info.get("formats"):
+                    valid_fmts = [f for f in info["formats"] if f.get("url")]
+                    if valid_fmts:
+                        audio_fmts = [f for f in valid_fmts if f.get("acodec") != "none"]
+                        stream_url = (audio_fmts[-1] if audio_fmts else valid_fmts[-1])["url"]
+
+                if stream_url:
                     logger.info(f"Tier 1: Direct stream resolved from source_url for '{expected_title}'")
                     return {
-                        "direct_url": info["url"],
-                        "duration": info.get("duration") or expected_duration,
+                        "direct_url": stream_url,
+                        "duration": (info.get("duration") if info else 0) or expected_duration,
                         "source_url": source_url,
                         "title": expected_title,
                         "artist": expected_artist,
                         "is_cdn": True,
                     }
         except Exception as src_err:
-            logger.info(f"Tier 1 source_url extraction note: {src_err}")
+            logger.warning(f"Tier 1 source_url extraction note: {src_err}")
     
     # Tier 2: JioSaavn CDN with strict album, artist & version matching
     candidate = await loop.run_in_executor(
@@ -529,6 +542,12 @@ async def resolve_direct_stream(expected_meta: Dict[str, Any]) -> Optional[Dict[
         yt_fast_q = f"{clean_expected} {lead_artist} official audio"
 
     try:
+        node_path = _get_node_path()
+        if node_path:
+            node_dir = os.path.dirname(node_path)
+            if node_dir not in os.environ.get("PATH", ""):
+                os.environ["PATH"] = node_dir + os.pathsep + os.environ.get("PATH", "")
+
         ydl_opts_yt = {
             "format": "ba[abr<=160]/bestaudio/best",
             "quiet": True,
@@ -537,13 +556,13 @@ async def resolve_direct_stream(expected_meta: Dict[str, Any]) -> Optional[Dict[
             "socket_timeout": 15,
             "extractor_args": {
                 "youtube": {
-                    "player_client": ["android", "ios"],
+                    "player_client": ["web", "android"],
                 }
             },
-            "http_headers": {
-                "User-Agent": "com.google.android.youtube/19.29.37 (Linux; U; Android 14; en_US) gzip",
-            },
         }
+        if node_path:
+            ydl_opts_yt["javascript_runtime"] = node_path
+
         with yt_dlp.YoutubeDL(ydl_opts_yt) as ydl:
             yt_info = await loop.run_in_executor(
                 None,
@@ -585,18 +604,19 @@ async def resolve_direct_stream(expected_meta: Dict[str, Any]) -> Optional[Dict[
 
             if best_entry and best_entry.get("url"):
                 yt_dur = float(best_entry.get("duration") or 0)
+                cand_webpage = best_entry.get("webpage_url") or (f"https://www.youtube.com/watch?v={best_entry.get('id')}" if best_entry.get("id") else None)
                 logger.info(f"Tier 3: YouTube Fast Stream resolved for '{expected_title}' -> {best_entry.get('title')}")
                 return {
                     "direct_url": best_entry["url"],
                     "duration": yt_dur or expected_duration,
-                    "source_url": best_entry.get("webpage_url") or f"https://www.youtube.com/watch?v={best_entry.get('id')}",
-                    "title": expected_title,
+                    "source_url": cand_webpage or source_url,
+                    "title": best_entry.get("title") or expected_title,
                     "artist": expected_artist,
                     "thumbnail_url": expected_meta.get("thumbnail_url") or best_entry.get("thumbnail"),
                     "is_cdn": True,
                 }
     except Exception as yt_err:
-        logger.info(f"Tier 3 YouTube Fast Stream fallback note: {yt_err}")
+        logger.warning(f"Tier 3 YouTube Fast Stream error: {yt_err}")
 
     return None
 
@@ -628,11 +648,11 @@ def ydl_opts(track_id, prefer_fast=True):
         "ffmpeg_location": ffmpeg_path,
         "extractor_args": {
             "youtube": {
-                "player_client": ["android", "ios"],
+                "player_client": ["web", "android"],
             }
         },
         "http_headers": {
-            "User-Agent": "com.google.android.youtube/19.29.37 (Linux; U; Android 14; en_US) gzip",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         }
     }

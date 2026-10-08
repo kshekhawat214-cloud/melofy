@@ -413,6 +413,7 @@ async def diagnose_song(song_id: str, db: Session = Depends(get_db)):
     }
     
     files_in_audio = [f.name for f in AUDIO_DIR.iterdir()] if AUDIO_DIR.exists() else []
+    loop = asyncio.get_event_loop()
     
     direct_res = None
     try:
@@ -450,7 +451,6 @@ async def diagnose_song(song_id: str, db: Session = Depends(get_db)):
             }
 
     # 2. Test candidate search queries
-    loop = asyncio.get_event_loop()
     for q in queries:
         try:
             s_opts = {**ydl_opts(song.id, prefer_fast=True), "extract_flat": "in_playlist"}
