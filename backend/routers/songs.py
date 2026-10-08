@@ -70,9 +70,12 @@ def proxy_audio_stream(stream_url: str, request_range: str = None) -> StreamingR
     Streams audio bytes directly from IP-bound or CDN sources (e.g. YouTube googlevideo)
     to client browser with RFC 7233 byte-range support, preventing 403 Forbidden IP mismatch.
     """
-    req_headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-    }
+    req_headers = {}
+    if "googlevideo.com" in stream_url:
+        req_headers["User-Agent"] = "com.google.android.youtube/19.29.37 (Linux; U; Android 14; en_US) gzip"
+    else:
+        req_headers["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+
     if request_range:
         req_headers["Range"] = request_range
 
@@ -88,7 +91,7 @@ def proxy_audio_stream(stream_url: str, request_range: str = None) -> StreamingR
 
     resp_headers = {
         **STREAM_HEADERS,
-        "Content-Type": r.headers.get("content-type") or r.headers.get("Content-Type") or "audio/webm",
+        "Content-Type": r.headers.get("content-type") or r.headers.get("Content-Type") or "audio/mp4",
         "Cache-Control": "no-cache",
     }
     content_range = r.headers.get("content-range") or r.headers.get("Content-Range")
@@ -208,46 +211,48 @@ async def stream_audio(song_id: str, request: Request, background_tasks: Backgro
         }
 
         # Step A: High-speed direct CDN stream resolution (Returns in < 1s)
+        resolved = None
         try:
             resolved = await resolve_direct_stream(track_meta)
-            if resolved and resolved.get("direct_url"):
-                direct_url = resolved["direct_url"]
-                logger.info(f"Fast CDN Stream found for '{song.title}' -> redirecting in < 1s!")
-
-                if resolved.get("duration") and not song.duration:
-                    song.duration = resolved["duration"]
-                if resolved.get("source_url") and not song.source_url:
-                    song.source_url = resolved["source_url"]
-                db.commit()
-
-                # Schedule background download to disk for permanent offline caching
-                async def _bg_download(s_meta, s_url):
-                    try:
-                        from database.models import SessionLocal as BgSession
-                        bg_res = await smart_download(s_url, s_meta)
-                        if bg_res and bg_res.get("audio_path"):
-                            bg_db = BgSession()
-                            try:
-                                s_rec = bg_db.query(Song).filter(Song.id == s_meta["id"]).first()
-                                if s_rec:
-                                    s_rec.audio_path = f"local_storage/audio/{Path(bg_res['audio_path']).name}"
-                                    bg_db.commit()
-                            finally:
-                                bg_db.close()
-                    except Exception as bg_err:
-                        logger.warning(f"Background stream cache failed: {bg_err}")
-
-                background_tasks.add_task(_bg_download, track_meta, song.source_url or "")
-                
-                # Public CDN (JioSaavn / Pixabay) - can be redirected directly without IP lock
-                if "saavncdn.com" in direct_url or "pixabay.com" in direct_url:
-                    return RedirectResponse(url=direct_url, status_code=307, headers=STREAM_HEADERS)
-                
-                # IP-bound stream (YouTube / GoogleVideo) - proxy bytes with Range support so browser never hits 403 Forbidden
-                req_range = request.headers.get("range")
-                return proxy_audio_stream(direct_url, req_range)
         except Exception as resolve_err:
-            logger.warning(f"Direct stream resolver passed to full download: {resolve_err}")
+            logger.warning(f"Direct stream resolver note: {resolve_err}")
+
+        if resolved and resolved.get("direct_url"):
+            direct_url = resolved["direct_url"]
+            logger.info(f"Fast CDN Stream found for '{song.title}' -> serving!")
+
+            if resolved.get("duration") and not song.duration:
+                song.duration = resolved["duration"]
+            if resolved.get("source_url") and not song.source_url:
+                song.source_url = resolved["source_url"]
+            db.commit()
+
+            # Schedule background download to disk for permanent offline caching
+            async def _bg_download(s_meta, s_url):
+                try:
+                    from database.models import SessionLocal as BgSession
+                    bg_res = await smart_download(s_url, s_meta)
+                    if bg_res and bg_res.get("audio_path"):
+                        bg_db = BgSession()
+                        try:
+                            s_rec = bg_db.query(Song).filter(Song.id == s_meta["id"]).first()
+                            if s_rec:
+                                s_rec.audio_path = f"local_storage/audio/{Path(bg_res['audio_path']).name}"
+                                bg_db.commit()
+                        finally:
+                            bg_db.close()
+                except Exception as bg_err:
+                    logger.warning(f"Background stream cache failed: {bg_err}")
+
+            background_tasks.add_task(_bg_download, track_meta, song.source_url or "")
+            
+            # Public CDN (JioSaavn / Pixabay) - can be redirected directly without IP lock
+            if "saavncdn.com" in direct_url or "pixabay.com" in direct_url:
+                return RedirectResponse(url=direct_url, status_code=307, headers=STREAM_HEADERS)
+            
+            # IP-bound stream (YouTube / GoogleVideo) - proxy bytes with Range support so browser never hits 403 Forbidden
+            req_range = request.headers.get("range")
+            return proxy_audio_stream(direct_url, req_range)
 
         # Step B: Fallback to full download
         try:
@@ -511,6 +516,19 @@ async def diagnose_song(song_id: str, db: Session = Depends(get_db)):
             client_probe[c_name] = {"success": False, "error": str(pe)[:80]}
         
     files_after = [f.name for f in AUDIO_DIR.iterdir()] if AUDIO_DIR.exists() else []
+
+    proxy_status = {}
+    if direct_res and isinstance(direct_res, dict) and direct_res.get("direct_url"):
+        d_url = direct_res["direct_url"]
+        for ua_name, ua in [
+            ("android", "com.google.android.youtube/19.29.37 (Linux; U; Android 14; en_US) gzip"),
+            ("chrome", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"),
+        ]:
+            try:
+                t_r = requests.get(d_url, headers={"User-Agent": ua, "Range": "bytes=0-100"}, stream=True, timeout=5)
+                proxy_status[ua_name] = {"status": t_r.status_code, "len": len(t_r.raw.read(50))}
+            except Exception as te:
+                proxy_status[ua_name] = {"error": str(te)}
     
     return {
         "git_commit": os.getenv("RENDER_GIT_COMMIT", "local"),
@@ -527,6 +545,7 @@ async def diagnose_song(song_id: str, db: Session = Depends(get_db)):
         "direct_source_test": direct_source_test,
         "diag_steps": diag_steps,
         "client_probe": client_probe,
+        "proxy_status": proxy_status,
     }
 
 
