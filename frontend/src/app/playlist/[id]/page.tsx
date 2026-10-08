@@ -31,6 +31,7 @@ import {
   unsavePlaylist,
   clonePlaylist,
 } from "@/lib/api"
+import { getSongMoodColor } from "@/lib/colors"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 
@@ -178,10 +179,12 @@ export default function PlaylistPage({ params }: { params: Promise<{ id: string 
     return `${mins} min`
   }
 
+  const moodTone = getSongMoodColor(playlist.id + playlist.name)
+
   return (
     <div className="flex-1 overflow-y-auto bg-[#121212] h-full relative scroll-smooth rounded-lg text-white select-none scrollbar-hidden">
       {/* Dynamic Header Gradient Block */}
-      <div className="absolute top-0 left-0 w-full h-[380px] bg-gradient-to-b from-indigo-700/60 via-[#121212]/80 to-[#121212] z-0" />
+      <div className={`absolute top-0 left-0 w-full h-[380px] bg-gradient-to-b ${moodTone.bgFrom} via-[#121212]/85 to-[#121212] z-0 transition-all duration-700`} />
 
       <Header />
 

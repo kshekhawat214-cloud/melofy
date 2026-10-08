@@ -2,8 +2,8 @@
 Songs Router: CRUD + Stream audio + Download endpoint.
 Serves audio files as streams directly from local_storage.
 """
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Request, Response
-from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi.responses import FileResponse, RedirectResponse
 from sqlalchemy.orm import Session
 from database.models import Song, get_db
 from pathlib import Path
@@ -11,7 +11,6 @@ import os
 import mimetypes
 import logging
 import traceback
-import requests
 
 logger = logging.getLogger(__name__)
 
@@ -65,58 +64,14 @@ def get_audio_mime_type(file_path: Path) -> str:
     return guessed or "audio/mp4"
 
 
-def proxy_audio_stream(stream_url: str, request_range: str = None) -> StreamingResponse:
-    """
-    Streams audio bytes directly from IP-bound or CDN sources (e.g. YouTube googlevideo)
-    to client browser with RFC 7233 byte-range support, preventing 403 Forbidden IP mismatch.
-    """
-    req_headers = {}
-    if "googlevideo.com" in stream_url:
-        req_headers["User-Agent"] = "com.google.android.youtube/19.29.37 (Linux; U; Android 14; en_US) gzip"
-    else:
-        req_headers["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-
-    if request_range:
-        req_headers["Range"] = request_range
-
-    r = requests.get(stream_url, headers=req_headers, stream=True, timeout=20)
-    
-    def iter_audio():
-        try:
-            for chunk in r.iter_content(chunk_size=64 * 1024):
-                if chunk:
-                    yield chunk
-        finally:
-            r.close()
-
-    resp_headers = {
-        **STREAM_HEADERS,
-        "Content-Type": r.headers.get("content-type") or r.headers.get("Content-Type") or "audio/mp4",
-        "Cache-Control": "no-cache",
-    }
-    content_range = r.headers.get("content-range") or r.headers.get("Content-Range")
-    if content_range:
-        resp_headers["Content-Range"] = content_range
-
-    content_len = r.headers.get("content-length") or r.headers.get("Content-Length")
-    if content_len:
-        resp_headers["Content-Length"] = content_len
-
-    status_code = r.status_code if r.status_code in (200, 206) else 200
-    return StreamingResponse(
-        iter_audio(),
-        status_code=status_code,
-        headers=resp_headers,
-    )
-
-
 @router.options("/songs/{song_id}/stream")
 def options_stream_audio(song_id: str):
+    from fastapi import Response
     return Response(status_code=204, headers=STREAM_HEADERS)
 
 
 @router.api_route("/songs/{song_id}/stream", methods=["GET", "HEAD"])
-async def stream_audio(song_id: str, request: Request, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+async def stream_audio(song_id: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     """
     Streams the audio file with instant sub-second response times.
     1. If cached on disk or remote CDN, streams immediately with HTTP 206 range support.
@@ -211,48 +166,39 @@ async def stream_audio(song_id: str, request: Request, background_tasks: Backgro
         }
 
         # Step A: High-speed direct CDN stream resolution (Returns in < 1s)
-        resolved = None
         try:
             resolved = await resolve_direct_stream(track_meta)
-        except Exception as resolve_err:
-            logger.warning(f"Direct stream resolver note: {resolve_err}")
+            if resolved and resolved.get("direct_url"):
+                direct_url = resolved["direct_url"]
+                logger.info(f"Fast CDN Stream found for '{song.title}' -> redirecting in < 1s!")
 
-        if resolved and resolved.get("direct_url"):
-            direct_url = resolved["direct_url"]
-            logger.info(f"Fast CDN Stream found for '{song.title}' -> serving!")
+                if resolved.get("duration") and not song.duration:
+                    song.duration = resolved["duration"]
+                if resolved.get("source_url") and not song.source_url:
+                    song.source_url = resolved["source_url"]
+                db.commit()
 
-            if resolved.get("duration") and not song.duration:
-                song.duration = resolved["duration"]
-            if resolved.get("source_url") and not song.source_url:
-                song.source_url = resolved["source_url"]
-            db.commit()
+                # Schedule background download to disk for permanent offline caching
+                async def _bg_download(s_meta, s_url):
+                    try:
+                        from database.models import SessionLocal as BgSession
+                        bg_res = await smart_download(s_url, s_meta)
+                        if bg_res and bg_res.get("audio_path"):
+                            bg_db = BgSession()
+                            try:
+                                s_rec = bg_db.query(Song).filter(Song.id == s_meta["id"]).first()
+                                if s_rec:
+                                    s_rec.audio_path = f"local_storage/audio/{Path(bg_res['audio_path']).name}"
+                                    bg_db.commit()
+                            finally:
+                                bg_db.close()
+                    except Exception as bg_err:
+                        logger.warning(f"Background stream cache failed: {bg_err}")
 
-            # Schedule background download to disk for permanent offline caching
-            async def _bg_download(s_meta, s_url):
-                try:
-                    from database.models import SessionLocal as BgSession
-                    bg_res = await smart_download(s_url, s_meta)
-                    if bg_res and bg_res.get("audio_path"):
-                        bg_db = BgSession()
-                        try:
-                            s_rec = bg_db.query(Song).filter(Song.id == s_meta["id"]).first()
-                            if s_rec:
-                                s_rec.audio_path = f"local_storage/audio/{Path(bg_res['audio_path']).name}"
-                                bg_db.commit()
-                        finally:
-                            bg_db.close()
-                except Exception as bg_err:
-                    logger.warning(f"Background stream cache failed: {bg_err}")
-
-            background_tasks.add_task(_bg_download, track_meta, song.source_url or "")
-            
-            # Public CDN (JioSaavn / Pixabay) - can be redirected directly without IP lock
-            if "saavncdn.com" in direct_url or "pixabay.com" in direct_url:
+                background_tasks.add_task(_bg_download, track_meta, song.source_url or "")
                 return RedirectResponse(url=direct_url, status_code=307, headers=STREAM_HEADERS)
-            
-            # IP-bound stream (YouTube / GoogleVideo) - proxy bytes with Range support so browser never hits 403 Forbidden
-            req_range = request.headers.get("range")
-            return proxy_audio_stream(direct_url, req_range)
+        except Exception as resolve_err:
+            logger.warning(f"Direct stream resolver passed to full download: {resolve_err}")
 
         # Step B: Fallback to full download
         try:
@@ -418,7 +364,6 @@ async def diagnose_song(song_id: str, db: Session = Depends(get_db)):
     }
     
     files_in_audio = [f.name for f in AUDIO_DIR.iterdir()] if AUDIO_DIR.exists() else []
-    loop = asyncio.get_event_loop()
     
     direct_res = None
     try:
@@ -435,30 +380,10 @@ async def diagnose_song(song_id: str, db: Session = Depends(get_db)):
         f"{clean_expected} {lead_artist}",
     ]
     
-    # 1. Test direct source_url extraction if present
-    direct_source_test = {}
-    if song.source_url:
-        try:
-            ds_opts = dict(ydl_opts(song.id, prefer_fast=True))
-            ds_opts["ignoreerrors"] = False
-            with yt_dlp.YoutubeDL(ds_opts) as ds_ydl:
-                ds_data = await loop.run_in_executor(None, lambda: ds_ydl.extract_info(song.source_url, download=False))
-                direct_source_test = {
-                    "url": song.source_url,
-                    "extracted_url": bool(ds_data and ds_data.get("url")),
-                    "title": ds_data.get("title") if ds_data else None,
-                }
-        except Exception as ds_err:
-            direct_source_test = {
-                "url": song.source_url,
-                "error": str(ds_err),
-                "trace": traceback.format_exc(),
-            }
-
-    # 2. Test candidate search queries
+    loop = asyncio.get_event_loop()
     for q in queries:
         try:
-            s_opts = {**ydl_opts(song.id, prefer_fast=True), "extract_flat": "in_playlist", "extractor_args": {}}
+            s_opts = {**ydl_opts(song.id, prefer_fast=True), "extract_flat": "in_playlist"}
             with yt_dlp.YoutubeDL(s_opts) as ydl:
                 info = await loop.run_in_executor(None, lambda: ydl.extract_info(f"ytsearch3:{q}", download=False))
                 entries = [e for e in info.get("entries", []) if e]
@@ -468,67 +393,17 @@ async def diagnose_song(song_id: str, db: Session = Depends(get_db)):
                     cand_url = cand.get("webpage_url") or f"https://www.youtube.com/watch?v={cand.get('id')}"
                     diag_steps.append({"attempting_url": cand_url, "title": cand.get("title")})
                     try:
-                        dl_opts = dict(ydl_opts(song.id, prefer_fast=True))
-                        dl_opts["ignoreerrors"] = False
+                        dl_opts = ydl_opts(song.id, prefer_fast=True)
                         with yt_dlp.YoutubeDL(dl_opts) as dl_ydl:
                             dl_data = await loop.run_in_executor(None, lambda: dl_ydl.extract_info(cand_url, download=True))
-                            if dl_data:
-                                diag_steps.append({"dl_success": True, "dl_format": dl_data.get("format_id")})
-                                break
-                            else:
-                                diag_steps.append({"dl_success": False, "dl_data": None})
+                            diag_steps.append({"dl_success": True, "dl_format": dl_data.get("format_id")})
+                            break
                     except Exception as dl_err:
                         diag_steps.append({"dl_error": str(dl_err), "trace": traceback.format_exc()})
         except Exception as q_err:
             diag_steps.append({"query_error": str(q_err)})
-
-    # 3. Test client options directly to find which client bypasses Render datacenter bot check
-    client_probe = {}
-    test_clients = [
-        ["ios"],
-        ["mweb"],
-        ["tv"],
-        ["web_safari"],
-        ["web_embedded"],
-        ["android_vr"],
-        ["mweb", "tv"],
-        ["ios", "mweb"],
-    ]
-    node_path = _get_node_path()
-    for c in test_clients:
-        c_name = "+".join(c)
-        try:
-            p_opts = {
-                "format": "bestaudio/18/best",
-                "quiet": True,
-                "socket_timeout": 8,
-                "nocheckcertificate": True,
-                "extractor_args": {"youtube": {"player_client": c}},
-            }
-            if node_path:
-                p_opts["javascript_runtime"] = node_path
-            with yt_dlp.YoutubeDL(p_opts) as p_ydl:
-                p_data = await loop.run_in_executor(None, lambda: p_ydl.extract_info("https://www.youtube.com/watch?v=uc43tD6-E4U", download=False))
-                client_probe[c_name] = {"success": True, "format": p_data.get("format_id"), "url": bool(p_data and p_data.get("url"))}
-                if p_data and p_data.get("url"):
-                    break
-        except Exception as pe:
-            client_probe[c_name] = {"success": False, "error": str(pe)[:80]}
         
     files_after = [f.name for f in AUDIO_DIR.iterdir()] if AUDIO_DIR.exists() else []
-
-    proxy_status = {}
-    if direct_res and isinstance(direct_res, dict) and direct_res.get("direct_url"):
-        d_url = direct_res["direct_url"]
-        for ua_name, ua in [
-            ("android", "com.google.android.youtube/19.29.37 (Linux; U; Android 14; en_US) gzip"),
-            ("chrome", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"),
-        ]:
-            try:
-                t_r = requests.get(d_url, headers={"User-Agent": ua, "Range": "bytes=0-100"}, stream=True, timeout=5)
-                proxy_status[ua_name] = {"status": t_r.status_code, "len": len(t_r.raw.read(50))}
-            except Exception as te:
-                proxy_status[ua_name] = {"error": str(te)}
     
     return {
         "git_commit": os.getenv("RENDER_GIT_COMMIT", "local"),
@@ -542,10 +417,7 @@ async def diagnose_song(song_id: str, db: Session = Depends(get_db)):
         "files_before": files_in_audio,
         "files_after": files_after,
         "direct_res": direct_res,
-        "direct_source_test": direct_source_test,
         "diag_steps": diag_steps,
-        "client_probe": client_probe,
-        "proxy_status": proxy_status,
     }
 
 

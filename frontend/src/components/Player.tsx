@@ -20,11 +20,13 @@ import {
   Loader2,
   ChevronDown,
   MoreHorizontal,
+  Minimize2,
 } from "lucide-react"
 import { usePlayerStore } from "@/store/playerStore"
 import { useUIStore } from "@/store/uiStore"
 import { useAuthStore } from "@/store/authStore"
 import { API_BASE, getSongCover, recordInteraction } from "@/lib/api"
+import { getSongMoodColor } from "@/lib/colors"
 
 export default function Player() {
   const {
@@ -68,6 +70,9 @@ export default function Player() {
   const [isHoveringVolume, setIsHoveringVolume] = useState(false)
   const [isBuffering, setIsBuffering] = useState(false)
   const [isMobileNowPlayingOpen, setIsMobileNowPlayingOpen] = useState(false)
+  const [sheetTranslateY, setSheetTranslateY] = useState(0)
+  const sheetTouchStartY = useRef(0)
+  const [isDesktopFullscreenOpen, setIsDesktopFullscreenOpen] = useState(false)
 
   // Spotify-grade smooth scrubbing & dragging state
   const [isDraggingProgress, setIsDraggingProgress] = useState(false)
@@ -78,6 +83,25 @@ export default function Player() {
   dragProgressRef.current = dragProgress
 
   const isLiked = currentSong ? likedSongIds.has(currentSong.id) : false
+
+  // Mobile swipe down to close now-playing sheet
+  const handleSheetTouchStart = (e: React.TouchEvent) => {
+    sheetTouchStartY.current = e.touches[0].clientY
+  }
+
+  const handleSheetTouchMove = (e: React.TouchEvent) => {
+    const deltaY = e.touches[0].clientY - sheetTouchStartY.current
+    if (deltaY > 0) {
+      setSheetTranslateY(deltaY)
+    }
+  }
+
+  const handleSheetTouchEnd = () => {
+    if (sheetTranslateY > 100) {
+      closeMobileNowPlaying()
+    }
+    setSheetTranslateY(0)
+  }
 
   // Hydrate user settings from localStorage on client mount
   useEffect(() => {
@@ -239,8 +263,39 @@ export default function Player() {
       navigator.mediaSession.setActionHandler("pause", () => setIsPlaying(false))
       navigator.mediaSession.setActionHandler("previoustrack", () => playPrevious())
       navigator.mediaSession.setActionHandler("nexttrack", () => playNext())
+
+      try {
+        navigator.mediaSession.setActionHandler("seekto", (details) => {
+          if (details.seekTime !== undefined && audioRef.current) {
+            audioRef.current.currentTime = details.seekTime
+            setProgress(details.seekTime)
+          }
+        })
+      } catch {}
+
+      try {
+        navigator.mediaSession.setActionHandler("seekbackward", (details) => {
+          const skip = details.seekOffset || 10
+          if (audioRef.current) {
+            const nextTime = Math.max(0, audioRef.current.currentTime - skip)
+            audioRef.current.currentTime = nextTime
+            setProgress(nextTime)
+          }
+        })
+      } catch {}
+
+      try {
+        navigator.mediaSession.setActionHandler("seekforward", (details) => {
+          const skip = details.seekOffset || 10
+          if (audioRef.current) {
+            const nextTime = Math.min(audioRef.current.duration || 0, audioRef.current.currentTime + skip)
+            audioRef.current.currentTime = nextTime
+            setProgress(nextTime)
+          }
+        })
+      } catch {}
     }
-  }, [currentSong, setIsPlaying, playPrevious, playNext])
+  }, [currentSong, setIsPlaying, playPrevious, playNext, setProgress])
 
   // Global Keyboard Shortcuts
   useEffect(() => {
@@ -258,18 +313,49 @@ export default function Player() {
       } else if (e.shiftKey && e.code === "ArrowLeft") {
         e.preventDefault()
         playPrevious()
+      } else if (e.code === "ArrowRight") {
+        e.preventDefault()
+        if (audioRef.current) {
+          const nextTime = Math.min(audioRef.current.duration || 0, audioRef.current.currentTime + 5)
+          audioRef.current.currentTime = nextTime
+          setProgress(nextTime)
+        }
+      } else if (e.code === "ArrowLeft") {
+        e.preventDefault()
+        if (audioRef.current) {
+          const nextTime = Math.max(0, audioRef.current.currentTime - 5)
+          audioRef.current.currentTime = nextTime
+          setProgress(nextTime)
+        }
+      } else if (e.code === "ArrowUp") {
+        e.preventDefault()
+        setVolume(Math.min(1, volume + 0.05))
+      } else if (e.code === "ArrowDown") {
+        e.preventDefault()
+        setVolume(Math.max(0, volume - 0.05))
       } else if (e.code === "KeyM") {
         toggleMute()
       } else if (e.code === "KeyS") {
         toggleShuffle()
       } else if (e.code === "KeyR") {
         toggleRepeat()
+      } else if (e.code === "Escape") {
+        setIsDesktopFullscreenOpen(false)
+      } else if (((e.ctrlKey || e.metaKey) && e.key === "k") || e.key === "/") {
+        e.preventDefault()
+        const searchInput = document.querySelector('input[type="text"]') as HTMLInputElement
+        if (searchInput) {
+          searchInput.focus()
+          searchInput.select()
+        } else {
+          window.location.href = "/search"
+        }
       }
     }
 
     window.addEventListener("keydown", handleKeyDown)
     return () => window.removeEventListener("keydown", handleKeyDown)
-  }, [togglePlay, playNext, playPrevious, toggleMute, toggleShuffle, toggleRepeat])
+  }, [togglePlay, playNext, playPrevious, toggleMute, toggleShuffle, toggleRepeat, volume, setVolume, setProgress])
 
   const handleTimeUpdate = () => {
     if (audioRef.current) {
@@ -282,6 +368,16 @@ export default function Player() {
       }
       if (audioRef.current.duration && !isNaN(audioRef.current.duration)) {
         setDuration(audioRef.current.duration)
+      }
+
+      if ("mediaSession" in navigator && "setPositionState" in navigator.mediaSession && duration > 0) {
+        try {
+          navigator.mediaSession.setPositionState({
+            duration: Math.max(duration, 1),
+            playbackRate: 1,
+            position: Math.min(cur, duration),
+          })
+        } catch {}
       }
 
       // Spotify recommendation signal: listening for >= 30s counts as an engaged PLAY
@@ -390,6 +486,7 @@ export default function Player() {
   const progressPercent = Math.max(0, Math.min(100, (displayProgress / (duration || 1)) * 100))
 
   const coverUrl = getSongCover(currentSong, 300)
+  const moodTone = getSongMoodColor(currentSong?.id || currentSong?.title)
 
   return (
     <>
@@ -530,7 +627,16 @@ export default function Player() {
 
       {/* MOBILE FULL-SCREEN NOW PLAYING SHEET */}
       {isMobileNowPlayingOpen && currentSong && (
-        <div className="md:hidden fixed inset-0 z-50 bg-gradient-to-b from-[#2e1c4a] via-[#121212] to-black flex flex-col justify-between p-6 pb-8 text-white select-none animate-in slide-in-from-bottom duration-300">
+        <div
+          onTouchStart={handleSheetTouchStart}
+          onTouchMove={handleSheetTouchMove}
+          onTouchEnd={handleSheetTouchEnd}
+          style={{ transform: `translateY(${sheetTranslateY}px)` }}
+          className={`md:hidden fixed inset-0 z-50 bg-gradient-to-b ${moodTone.bgFrom} via-[#121212]/95 to-black flex flex-col justify-between p-6 pb-8 text-white select-none animate-in slide-in-from-bottom duration-300 transition-transform`}
+        >
+          {/* Top Grab Indicator for swipe down gesture */}
+          <div className="w-10 h-1 bg-white/30 rounded-full mx-auto -mt-2 mb-2" />
+
           {/* Sheet Header */}
           <div className="flex items-center justify-between pt-1">
             <button
@@ -932,19 +1038,133 @@ export default function Player() {
 
           <button
             onClick={() => {
-              if (!document.fullscreenElement) {
-                document.documentElement.requestFullscreen()
-              } else {
-                document.exitFullscreen()
-              }
+              setIsDesktopFullscreenOpen(!isDesktopFullscreenOpen)
             }}
-            className="hover:text-white transition p-1 ml-1"
-            title="Full screen"
+            className={`hover:text-white transition p-1 ml-1 ${isDesktopFullscreenOpen ? "text-[#1db954]" : ""}`}
+            title="Now playing full screen"
           >
-            <Maximize2 size={17} />
+            {isDesktopFullscreenOpen ? <Minimize2 size={17} /> : <Maximize2 size={17} />}
           </button>
         </div>
       </footer>
+
+      {/* DESKTOP IMMERSIVE FULL-SCREEN VIEW */}
+      {isDesktopFullscreenOpen && currentSong && (
+        <div className="hidden md:flex fixed inset-0 z-[140] bg-gradient-to-b from-[#181818] via-[#121212] to-black flex-col justify-between p-12 text-white select-none animate-in fade-in duration-200">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <span className="text-xs uppercase tracking-widest text-[#b3b3b3] font-bold">
+                Playing from {currentSong.album || "Library"}
+              </span>
+            </div>
+            <button
+              onClick={() => setIsDesktopFullscreenOpen(false)}
+              className="p-2.5 text-[#b3b3b3] hover:text-white rounded-full bg-white/5 hover:bg-white/10 transition"
+              title="Exit full screen (Esc)"
+            >
+              <Minimize2 size={24} />
+            </button>
+          </div>
+
+          <div className="flex items-center justify-center space-x-12 my-auto max-w-5xl mx-auto w-full">
+            <div className="w-80 h-80 lg:w-96 lg:h-96 rounded-2xl overflow-hidden shadow-2xl shadow-black/90 bg-[#181818] flex-shrink-0 border border-white/10">
+              <img
+                src={getSongCover(currentSong, 640)}
+                alt={currentSong.title}
+                className="w-full h-full object-cover"
+              />
+            </div>
+            <div className="flex flex-col space-y-4 max-w-md">
+              <span className="text-4xl lg:text-5xl font-black text-white leading-tight">
+                {currentSong.title}
+              </span>
+              <span className="text-xl text-[#b3b3b3] font-semibold">
+                {currentSong.artist}
+              </span>
+              {currentSong.album && (
+                <span className="text-sm text-[#777]">
+                  {currentSong.album}
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div className="max-w-2xl mx-auto w-full space-y-4">
+            {/* Scrubber Progress Bar */}
+            <div className="space-y-1">
+              <div
+                onMouseDown={(e) => {
+                  e.preventDefault()
+                  startProgressDrag(e.clientX, e.currentTarget)
+                }}
+                className="py-3 -my-2.5 bg-transparent cursor-pointer relative flex items-center touch-none select-none group"
+              >
+                <div className="w-full h-1.5 bg-white/20 rounded-full relative overflow-visible">
+                  <div
+                    className="h-full bg-[#1db954] rounded-full relative"
+                    style={{ width: `${progressPercent}%` }}
+                  >
+                    <div className="w-3.5 h-3.5 bg-white rounded-full absolute -right-1.5 top-1/2 -translate-y-1/2 shadow-md" />
+                  </div>
+                </div>
+              </div>
+              <div className="flex justify-between text-xs font-mono text-[#b3b3b3]">
+                <span>{formatTime(displayProgress)}</span>
+                <span>{formatTime(duration)}</span>
+              </div>
+            </div>
+
+            {/* Playback Controls Row */}
+            <div className="flex items-center justify-center space-x-8">
+              <button
+                onClick={toggleShuffle}
+                className={`p-2 transition ${shuffle ? "text-[#1db954]" : "text-white/60 hover:text-white"}`}
+                title="Shuffle"
+              >
+                <Shuffle size={24} />
+              </button>
+
+              <button
+                onClick={playPrevious}
+                className="p-2 text-white/80 hover:text-white active:scale-90 transition"
+                title="Previous"
+              >
+                <SkipBack size={32} fill="currentColor" />
+              </button>
+
+              <button
+                onClick={togglePlay}
+                className="w-16 h-16 rounded-full bg-white text-black flex items-center justify-center hover:scale-106 active:scale-95 shadow-xl transition"
+                title={isPlaying ? "Pause" : "Play"}
+              >
+                {isBuffering && isPlaying ? (
+                  <Loader2 size={28} className="animate-spin text-black" />
+                ) : isPlaying ? (
+                  <Pause size={28} fill="currentColor" />
+                ) : (
+                  <Play size={28} fill="currentColor" className="ml-1" />
+                )}
+              </button>
+
+              <button
+                onClick={playNext}
+                className="p-2 text-white/80 hover:text-white active:scale-90 transition"
+                title="Next"
+              >
+                <SkipForward size={32} fill="currentColor" />
+              </button>
+
+              <button
+                onClick={toggleRepeat}
+                className={`p-2 transition ${repeatMode !== "off" ? "text-[#1db954]" : "text-white/60 hover:text-white"}`}
+                title={`Repeat: ${repeatMode}`}
+              >
+                {repeatMode === "one" ? <Repeat1 size={24} /> : <Repeat size={24} />}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   )
 }

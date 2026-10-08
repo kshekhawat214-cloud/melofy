@@ -7,6 +7,7 @@ import { SEED_SHELVES, SEED_PLAYLISTS } from "@/lib/seedCatalog"
 import { usePlayerStore } from "@/store/playerStore"
 import { useUIStore } from "@/store/uiStore"
 import { useAuthStore } from "@/store/authStore"
+import { getSongMoodColor } from "@/lib/colors"
 import Link from "next/link"
 
 function SongCard({ song, shelfSongs }: { song: Song; shelfSongs: Song[] }) {
@@ -134,9 +135,10 @@ export default function Home() {
   const allSongs = shelves.flatMap((s) => s.songs)
   // Deduplicate for quick-access tiles
   const quickAccessSongs = Array.from(new Map(allSongs.map((s) => [s.id, s])).values()).slice(0, 8)
+  const ambientTone = getSongMoodColor(currentSong?.id || quickAccessSongs[0]?.id || "tunely")
 
   return (
-    <div id="main-scroll-container" className="flex-1 overflow-y-auto bg-gradient-to-b from-[#1e3264]/60 via-[#121212] to-[#121212] h-full relative scroll-smooth text-white scrollbar-hidden">
+    <div id="main-scroll-container" className={`flex-1 overflow-y-auto bg-gradient-to-b ${ambientTone.bgFrom} via-[#121212] to-[#121212] h-full relative scroll-smooth text-white scrollbar-hidden transition-colors duration-700`}>
       <Header />
 
       <main className="p-6 pb-36 space-y-8">

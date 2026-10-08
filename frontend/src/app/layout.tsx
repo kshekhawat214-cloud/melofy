@@ -24,6 +24,16 @@ const inter = Inter({
 export const metadata: Metadata = {
   title: "Tunely - Web Player: Music for everyone",
   description: "Spotify-style web player with intelligent personalization and offline-ready streaming",
+  manifest: "/manifest.json",
+  icons: {
+    icon: "/icon.svg",
+    apple: "/icon.svg",
+  },
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "Tunely",
+  },
 }
 
 export const viewport: Viewport = {
