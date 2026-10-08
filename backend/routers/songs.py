@@ -453,7 +453,7 @@ async def diagnose_song(song_id: str, db: Session = Depends(get_db)):
     # 2. Test candidate search queries
     for q in queries:
         try:
-            s_opts = {**ydl_opts(song.id, prefer_fast=True), "extract_flat": "in_playlist"}
+            s_opts = {**ydl_opts(song.id, prefer_fast=True), "extract_flat": "in_playlist", "extractor_args": {}}
             with yt_dlp.YoutubeDL(s_opts) as ydl:
                 info = await loop.run_in_executor(None, lambda: ydl.extract_info(f"ytsearch3:{q}", download=False))
                 entries = [e for e in info.get("entries", []) if e]

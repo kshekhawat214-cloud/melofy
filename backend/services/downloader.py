@@ -449,15 +449,18 @@ async def resolve_direct_stream(expected_meta: Dict[str, Any]) -> Optional[Dict[
                     os.environ["PATH"] = node_dir + os.pathsep + os.environ.get("PATH", "")
 
             ydl_opts_source = {
-                "format": "ba[abr<=160]/bestaudio/best",
+                "format": "bestaudio/18/best",
                 "quiet": True,
                 "noplaylist": True,
                 "nocheckcertificate": True,
                 "socket_timeout": 15,
                 "extractor_args": {
                     "youtube": {
-                        "player_client": ["web", "android"],
+                        "player_client": ["android"],
                     }
+                },
+                "http_headers": {
+                    "User-Agent": "com.google.android.youtube/19.29.37 (Linux; U; Android 14; en_US) gzip",
                 },
             }
             if node_path:
@@ -548,73 +551,77 @@ async def resolve_direct_stream(expected_meta: Dict[str, Any]) -> Optional[Dict[
             if node_dir not in os.environ.get("PATH", ""):
                 os.environ["PATH"] = node_dir + os.pathsep + os.environ.get("PATH", "")
 
-        ydl_opts_yt = {
-            "format": "ba[abr<=160]/bestaudio/best",
+        # Step 3A: Search YouTube (clean web search without player client override)
+        ydl_opts_yt_search = {
             "quiet": True,
+            "extract_flat": "in_playlist",
             "noplaylist": True,
             "nocheckcertificate": True,
-            "socket_timeout": 15,
-            "extractor_args": {
-                "youtube": {
-                    "player_client": ["web", "android"],
-                }
-            },
+            "socket_timeout": 10,
         }
-        if node_path:
-            ydl_opts_yt["javascript_runtime"] = node_path
-
-        with yt_dlp.YoutubeDL(ydl_opts_yt) as ydl:
+        with yt_dlp.YoutubeDL(ydl_opts_yt_search) as search_ydl:
             yt_info = await loop.run_in_executor(
                 None,
-                lambda: ydl.extract_info(f"ytsearch3:{yt_fast_q}", download=False)
+                lambda: search_ydl.extract_info(f"ytsearch3:{yt_fast_q}", download=False)
             )
             entries = yt_info.get("entries", []) if yt_info else []
-            if not entries and yt_info and yt_info.get("url"):
-                entries = [yt_info]
 
-            best_entry = None
-            best_diff = float("inf")
-
+        best_cand_url = None
+        best_title = expected_title
+        if entries:
             for candidate_entry in entries:
-                if not candidate_entry or not candidate_entry.get("url"):
-                    continue
                 cand_dur = float(candidate_entry.get("duration") or 0)
-                
-                # Check duration reasonableness
-                if expected_duration > 30 and cand_dur > 0:
-                    diff = abs(expected_duration - cand_dur)
-                    # Disqualify full album uploads, loops, or tiny snippets
-                    if diff > 45 or cand_dur < 25:
-                        continue
-                    if diff < best_diff:
-                        best_diff = diff
-                        best_entry = candidate_entry
-                else:
-                    best_entry = candidate_entry
+                if expected_duration > 30 and cand_dur > 0 and abs(expected_duration - cand_dur) > 45:
+                    continue
+                cand_id = candidate_entry.get("id")
+                if cand_id:
+                    best_cand_url = f"https://www.youtube.com/watch?v={cand_id}"
+                    best_title = candidate_entry.get("title") or expected_title
                     break
+            if not best_cand_url and entries[0].get("id"):
+                best_cand_url = f"https://www.youtube.com/watch?v={entries[0]['id']}"
+                best_title = entries[0].get("title") or expected_title
 
-            # Fallback if strict diff disqualified all 3 entries (e.g. single radio edit vs album version)
-            if not best_entry and entries:
-                for candidate_entry in entries:
-                    if candidate_entry and candidate_entry.get("url"):
-                        cand_dur = float(candidate_entry.get("duration") or 0)
-                        if cand_dur >= 25 and (not expected_duration or cand_dur <= expected_duration * 2.5):
-                            best_entry = candidate_entry
-                            break
+        if best_cand_url:
+            # Step 3B: Extract stream using android client (bypasses datacenter bot blocks)
+            ydl_opts_yt_extract = {
+                "format": "bestaudio/18/best",
+                "quiet": True,
+                "noplaylist": True,
+                "nocheckcertificate": True,
+                "socket_timeout": 15,
+                "extractor_args": {
+                    "youtube": {
+                        "player_client": ["android"],
+                    }
+                },
+                "http_headers": {
+                    "User-Agent": "com.google.android.youtube/19.29.37 (Linux; U; Android 14; en_US) gzip",
+                },
+            }
+            if node_path:
+                ydl_opts_yt_extract["javascript_runtime"] = node_path
 
-            if best_entry and best_entry.get("url"):
-                yt_dur = float(best_entry.get("duration") or 0)
-                cand_webpage = best_entry.get("webpage_url") or (f"https://www.youtube.com/watch?v={best_entry.get('id')}" if best_entry.get("id") else None)
-                logger.info(f"Tier 3: YouTube Fast Stream resolved for '{expected_title}' -> {best_entry.get('title')}")
-                return {
-                    "direct_url": best_entry["url"],
-                    "duration": yt_dur or expected_duration,
-                    "source_url": cand_webpage or source_url,
-                    "title": best_entry.get("title") or expected_title,
-                    "artist": expected_artist,
-                    "thumbnail_url": expected_meta.get("thumbnail_url") or best_entry.get("thumbnail"),
-                    "is_cdn": True,
-                }
+            with yt_dlp.YoutubeDL(ydl_opts_yt_extract) as extract_ydl:
+                v_info = await loop.run_in_executor(None, lambda: extract_ydl.extract_info(best_cand_url, download=False))
+                v_stream_url = v_info.get("url") if v_info else None
+                if not v_stream_url and v_info and v_info.get("formats"):
+                    valid_fmts = [f for f in v_info["formats"] if f.get("url")]
+                    if valid_fmts:
+                        audio_fmts = [f for f in valid_fmts if f.get("acodec") != "none"]
+                        v_stream_url = (audio_fmts[-1] if audio_fmts else valid_fmts[-1])["url"]
+
+                if v_stream_url:
+                    logger.info(f"Tier 3: YouTube Fast Stream resolved for '{expected_title}' -> {best_title}")
+                    return {
+                        "direct_url": v_stream_url,
+                        "duration": (v_info.get("duration") if v_info else 0) or expected_duration,
+                        "source_url": best_cand_url,
+                        "title": best_title,
+                        "artist": expected_artist,
+                        "thumbnail_url": expected_meta.get("thumbnail_url") or (v_info.get("thumbnail") if v_info else None),
+                        "is_cdn": True,
+                    }
     except Exception as yt_err:
         logger.warning(f"Tier 3 YouTube Fast Stream error: {yt_err}")
 
@@ -638,7 +645,7 @@ def ydl_opts(track_id, prefer_fast=True):
         logger.warning("No JS runtime found. Some restricted tracks may fail.")
 
     opts = {
-        "format": "bestaudio/best",
+        "format": "bestaudio/18/best",
         "outtmpl": str(AUDIO_DIR / f"{track_id}.%(ext)s"),
         "quiet": True,
         "noplaylist": True,
@@ -648,11 +655,11 @@ def ydl_opts(track_id, prefer_fast=True):
         "ffmpeg_location": ffmpeg_path,
         "extractor_args": {
             "youtube": {
-                "player_client": ["web", "android"],
+                "player_client": ["android"],
             }
         },
         "http_headers": {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "User-Agent": "com.google.android.youtube/19.29.37 (Linux; U; Android 14; en_US) gzip",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         }
     }
@@ -793,6 +800,7 @@ async def smart_download(query: str, expected_meta: Dict[str, Any]):
             search_opts = {
                 **ydl_opts(track_id, prefer_fast=True),
                 "extract_flat": "in_playlist",
+                "extractor_args": {},
             }
             with yt_dlp.YoutubeDL(search_opts) as ydl:
                 info = await loop.run_in_executor(None, lambda: ydl.extract_info(f"ytsearch5:{q}", download=False))
