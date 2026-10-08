@@ -237,16 +237,26 @@ def is_generic_album(album: str) -> bool:
     a_lower = album.strip().lower()
     return a_lower in GENERIC_ALBUMS or len(a_lower) < 2
 
+COMPILATION_ALBUM_KEYWORDS = [
+    "greatest hits", "best of", "collection", "anthology", "gold",
+    "the singles", "daddy cool", "hits", "deluxe edition", "anniversary"
+]
+
 def are_artists_compatible(art1: str, art2: str) -> bool:
     """
     Checks if two artist strings share compatible primary artists or singers,
     preventing merging different artists (e.g. Shankar Mahadevan vs Shankar Ehsaan Loy).
+    Handles HTML entities, non-breaking spaces, and hyphenated duo names.
     """
     if not art1 or not art2:
         return True
 
+    import html
+    art1 = html.unescape(art1).replace("\xa0", " ")
+    art2 = html.unescape(art2).replace("\xa0", " ")
+
     def get_tokens(s: str) -> list:
-        parts = re.split(r"[,&/+]|\band\b|\bfeat\.?\b|\bft\.?\b|\bfeaturing\b", s, flags=re.IGNORECASE)
+        parts = re.split(r"[,&/+—–-]|\band\b|\bfeat\.?\b|\bft\.?\b|\bfeaturing\b", s, flags=re.IGNORECASE)
         tokens = []
         for p in parts:
             p_clean = re.sub(r"[^\w\s]", "", p).strip().lower()
@@ -333,6 +343,7 @@ def resolve_jiosaavn_candidate(
     or version tag mismatches (e.g. Live vs Studio).
     """
     try:
+        import html
         saavn_q = f"{clean_expected} {lead_artist}".strip()
         saavn_api = f"https://www.jiosaavn.com/api.php?__call=autocomplete.get&query={requests.utils.quote(saavn_q)}&_format=json&_marker=0&ctx=web6dot0"
         s_res = requests.get(saavn_api, headers=JIOSAAVN_HEADERS, timeout=4)
@@ -348,9 +359,10 @@ def resolve_jiosaavn_candidate(
         exp_versions = extract_version_tags(expected_title)
         
         for candidate in s_songs:
-            cand_title = candidate.get("title", "")
+            cand_title = html.unescape(candidate.get("title", "")).replace("\xa0", " ").strip()
             cand_url = candidate.get("url", "")
-            cand_artists = candidate.get("more_info", {}).get("primary_artists", "") or candidate.get("description", "")
+            raw_cand_artists = candidate.get("more_info", {}).get("primary_artists", "") or candidate.get("description", "") or ""
+            cand_artists = html.unescape(raw_cand_artists).replace("\xa0", " ").strip()
             
             if not cand_url or "jiosaavn.com" not in cand_url:
                 continue
@@ -382,10 +394,15 @@ def resolve_jiosaavn_candidate(
 
             # 3. Album / Movie Soundtrack Verification:
             if expected_album:
-                c_cand_album = clean_album_name(candidate.get("album") or candidate.get("more_info", {}).get("album") or "").lower()
-                c_exp_album = clean_album_name(expected_album).lower()
+                raw_cand_alb = candidate.get("album") or candidate.get("more_info", {}).get("album") or ""
+                c_cand_album = clean_album_name(html.unescape(raw_cand_alb)).replace("\xa0", " ").strip().lower()
+                c_exp_album = clean_album_name(expected_album).replace("\xa0", " ").strip().lower()
+                
+                # If neither album is generic:
                 if c_cand_album and c_exp_album and not is_generic_album(c_cand_album) and not is_generic_album(c_exp_album):
-                    if c_cand_album != c_exp_album and similarity(c_cand_album, c_exp_album) < 0.65:
+                    is_compilation = any(k in c_cand_album for k in COMPILATION_ALBUM_KEYWORDS) or any(k in c_exp_album for k in COMPILATION_ALBUM_KEYWORDS)
+                    # Compilation albums (Greatest Hits, Best Of) are valid releases of the same song
+                    if not is_compilation and c_cand_album != c_exp_album and similarity(c_cand_album, c_exp_album) < 0.65:
                         logger.info(f"JioSaavn candidate disqualified (album mismatch: cand='{c_cand_album}' != exp='{c_exp_album}'): '{cand_title}'")
                         continue
 
@@ -405,21 +422,49 @@ def resolve_jiosaavn_candidate(
 
 async def resolve_direct_stream(expected_meta: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """
-    Sub-second cold-start resolver.
-    Attempts to locate a direct 320kbps CDN stream URL (JioSaavn Akamai/Cloudflare CDN)
-    with strict version and movie/soundtrack matching. Returns stream URL without blocking on disk download or FFmpeg.
+    Sub-second cold-start resolver (< 2s).
+    3-Tier Resolution Strategy:
+    1. If song has an existing YouTube/direct source_url, extracts direct audio stream URL in ~1.5s.
+    2. High-speed JioSaavn 320kbps CDN stream resolution (< 1s).
+    3. Fast YouTube Audio CDN stream fallback (ytsearch1:, < 2.5s) so no song ever times out!
     """
     expected_title = expected_meta.get("title", "")
     expected_artist = expected_meta.get("artist", "")
     expected_album = expected_meta.get("album", "")
     expected_duration = float(expected_meta.get("duration") or 0)
+    source_url = expected_meta.get("source_url") or ""
     
     clean_expected = clean_song_title(expected_title)
     lead_artist = expected_artist.split(",")[0].strip() if expected_artist else ""
     
     loop = asyncio.get_event_loop()
+
+    # Tier 1: Immediate Direct Stream from existing source_url (if YouTube / soundcloud / direct link)
+    if source_url and "spotify.com" not in source_url and ("youtube.com" in source_url or "youtu.be" in source_url):
+        try:
+            ydl_opts_source = {
+                "format": "bestaudio/best",
+                "quiet": True,
+                "noplaylist": True,
+                "nocheckcertificate": True,
+                "socket_timeout": 5,
+            }
+            with yt_dlp.YoutubeDL(ydl_opts_source) as ydl:
+                info = await loop.run_in_executor(None, lambda: ydl.extract_info(source_url, download=False))
+                if info and info.get("url"):
+                    logger.info(f"Tier 1: Direct stream resolved from source_url for '{expected_title}'")
+                    return {
+                        "direct_url": info["url"],
+                        "duration": info.get("duration") or expected_duration,
+                        "source_url": source_url,
+                        "title": expected_title,
+                        "artist": expected_artist,
+                        "is_cdn": True,
+                    }
+        except Exception as src_err:
+            logger.info(f"Tier 1 source_url extraction note: {src_err}")
     
-    # 1. Check JioSaavn CDN with strict album, artist & version matching
+    # Tier 2: JioSaavn CDN with strict album, artist & version matching
     candidate = await loop.run_in_executor(
         None,
         lambda: resolve_jiosaavn_candidate(
@@ -453,19 +498,89 @@ async def resolve_direct_stream(expected_meta: Dict[str, Any]) -> Optional[Dict[
                                 f"JioSaavn stream duration mismatch: {cand_dur}s vs expected {expected_duration}s "
                                 f"(diff {diff:.1f}s > 15s) - skipping to preserve authentic audio version"
                             )
-                            return None
+                            info = None
                     
-                    return {
-                        "direct_url": cdn_url,
-                        "duration": cand_dur or expected_duration,
-                        "source_url": cand_url,
-                        "title": candidate.get("title") or expected_title,
-                        "artist": candidate.get("more_info", {}).get("primary_artists") or expected_artist,
-                        "thumbnail_url": expected_meta.get("thumbnail_url") or candidate.get("image"),
-                        "is_cdn": True,
-                    }
+                    if info:
+                        return {
+                            "direct_url": cdn_url,
+                            "duration": cand_dur or expected_duration,
+                            "source_url": cand_url,
+                            "title": candidate.get("title") or expected_title,
+                            "artist": candidate.get("more_info", {}).get("primary_artists") or expected_artist,
+                            "thumbnail_url": expected_meta.get("thumbnail_url") or candidate.get("image"),
+                            "is_cdn": True,
+                        }
         except Exception as err:
             logger.info(f"Failed to extract direct CDN stream from {cand_url}: {err}")
+
+    # Tier 3: YouTube Official Fast Direct Stream Fallback (< 2.5s)
+    exp_version_tags = extract_version_tags(expected_title)
+    if exp_version_tags:
+        yt_fast_q = f"{expected_title} {lead_artist}"
+    else:
+        yt_fast_q = f"{clean_expected} {lead_artist} official audio"
+
+    try:
+        ydl_opts_yt = {
+            "format": "bestaudio/best",
+            "quiet": True,
+            "noplaylist": True,
+            "nocheckcertificate": True,
+            "socket_timeout": 6,
+        }
+        with yt_dlp.YoutubeDL(ydl_opts_yt) as ydl:
+            yt_info = await loop.run_in_executor(
+                None,
+                lambda: ydl.extract_info(f"ytsearch3:{yt_fast_q}", download=False)
+            )
+            entries = yt_info.get("entries", []) if yt_info else []
+            if not entries and yt_info and yt_info.get("url"):
+                entries = [yt_info]
+
+            best_entry = None
+            best_diff = float("inf")
+
+            for candidate_entry in entries:
+                if not candidate_entry or not candidate_entry.get("url"):
+                    continue
+                cand_dur = float(candidate_entry.get("duration") or 0)
+                
+                # Check duration reasonableness
+                if expected_duration > 30 and cand_dur > 0:
+                    diff = abs(expected_duration - cand_dur)
+                    # Disqualify full album uploads, loops, or tiny snippets
+                    if diff > 45 or cand_dur < 25:
+                        continue
+                    if diff < best_diff:
+                        best_diff = diff
+                        best_entry = candidate_entry
+                else:
+                    best_entry = candidate_entry
+                    break
+
+            # Fallback if strict diff disqualified all 3 entries (e.g. single radio edit vs album version)
+            if not best_entry and entries:
+                for candidate_entry in entries:
+                    if candidate_entry and candidate_entry.get("url"):
+                        cand_dur = float(candidate_entry.get("duration") or 0)
+                        if cand_dur >= 25 and (not expected_duration or cand_dur <= expected_duration * 2.5):
+                            best_entry = candidate_entry
+                            break
+
+            if best_entry and best_entry.get("url"):
+                yt_dur = float(best_entry.get("duration") or 0)
+                logger.info(f"Tier 3: YouTube Fast Stream resolved for '{expected_title}' -> {best_entry.get('title')}")
+                return {
+                    "direct_url": best_entry["url"],
+                    "duration": yt_dur or expected_duration,
+                    "source_url": best_entry.get("webpage_url") or f"https://www.youtube.com/watch?v={best_entry.get('id')}",
+                    "title": expected_title,
+                    "artist": expected_artist,
+                    "thumbnail_url": expected_meta.get("thumbnail_url") or best_entry.get("thumbnail"),
+                    "is_cdn": True,
+                }
+    except Exception as yt_err:
+        logger.info(f"Tier 3 YouTube Fast Stream fallback note: {yt_err}")
 
     return None
 

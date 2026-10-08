@@ -93,7 +93,25 @@ async def stream_audio(song_id: str, background_tasks: BackgroundTasks, db: Sess
         path = None
         if song.audio_path:
             p = Path(song.audio_path)
-            path = p if p.is_absolute() else BASE_DIR / p
+            if p.is_absolute():
+                if p.exists() and p.stat().st_size > 1024 * 50:
+                    path = p
+                else:
+                    alt_name = BASE_DIR / "local_storage" / "audio" / p.name
+                    if alt_name.exists() and alt_name.stat().st_size > 1024 * 50:
+                        path = alt_name
+                        song.audio_path = f"local_storage/audio/{p.name}"
+                        db.commit()
+            else:
+                rel_p = BASE_DIR / p
+                if rel_p.exists() and rel_p.stat().st_size > 1024 * 50:
+                    path = rel_p
+                else:
+                    alt_name = BASE_DIR / "local_storage" / "audio" / p.name
+                    if alt_name.exists() and alt_name.stat().st_size > 1024 * 50:
+                        path = alt_name
+                        song.audio_path = f"local_storage/audio/{p.name}"
+                        db.commit()
 
         # Also search by song ID across all supported extensions
         if not path or not path.exists() or path.stat().st_size < 1024 * 50:
@@ -170,7 +188,7 @@ async def stream_audio(song_id: str, background_tasks: BackgroundTasks, db: Sess
                             try:
                                 s_rec = bg_db.query(Song).filter(Song.id == s_meta["id"]).first()
                                 if s_rec:
-                                    s_rec.audio_path = bg_res["audio_path"]
+                                    s_rec.audio_path = f"local_storage/audio/{Path(bg_res['audio_path']).name}"
                                     bg_db.commit()
                             finally:
                                 bg_db.close()
@@ -187,7 +205,7 @@ async def stream_audio(song_id: str, background_tasks: BackgroundTasks, db: Sess
             downloaded = await smart_download(song.source_url or "", track_meta)
             if downloaded and downloaded.get("audio_path") and Path(downloaded["audio_path"]).exists():
                 path = Path(downloaded["audio_path"])
-                song.audio_path = str(path)
+                song.audio_path = f"local_storage/audio/{path.name}"
                 if downloaded.get("duration") and not song.duration:
                     song.duration = downloaded["duration"]
                 db.commit()
@@ -410,7 +428,10 @@ def _serialize(s: Song) -> dict:
     local_p = None
     if s.audio_path and not is_url:
         p = Path(s.audio_path)
-        local_p = p if p.is_absolute() else BASE_DIR / p
+        if p.is_absolute():
+            local_p = p if p.exists() else BASE_DIR / "local_storage" / "audio" / p.name
+        else:
+            local_p = (BASE_DIR / p) if (BASE_DIR / p).exists() else BASE_DIR / "local_storage" / "audio" / p.name
     
     if not local_p or not local_p.exists():
         for ext in ["m4a", "mp3", "webm", "opus", "aac", "wav"]:

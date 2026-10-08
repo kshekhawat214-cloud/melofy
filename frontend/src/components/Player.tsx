@@ -57,6 +57,7 @@ export default function Player() {
   const { likedSongIds, toggleLikeSong, openContextMenu } = useUIStore()
 
   const audioRef = useRef<HTMLAudioElement | null>(null)
+  const audioRetryRef = useRef<{ id: string; count: number }>({ id: "", count: 0 })
   const { user } = useAuthStore()
   const currentUserId = user?.id || "1"
   const hasLoggedPlayRef = useRef(false)
@@ -151,6 +152,7 @@ export default function Player() {
     if (previousSongRef.current && previousSongRef.current.id !== currentSong.id) {
       restoredSeekAppliedRef.current = true
     }
+    audioRetryRef.current = { id: currentSong.id, count: 0 }
     hasLoggedPlayRef.current = false
     setIsBuffering(true)
     if (currentSong.duration) {
@@ -419,10 +421,16 @@ export default function Player() {
           onPlaying={() => {
             applyCurrentVolume()
             setIsBuffering(false)
+            if (currentSong) {
+              audioRetryRef.current = { id: currentSong.id, count: 0 }
+            }
           }}
           onCanPlay={() => {
             applyCurrentVolume()
             setIsBuffering(false)
+            if (currentSong) {
+              audioRetryRef.current = { id: currentSong.id, count: 0 }
+            }
             if (!restoredSeekAppliedRef.current) {
               restoredSeekAppliedRef.current = true
               const savedProgress = usePlayerStore.getState().progress
@@ -440,7 +448,23 @@ export default function Player() {
           }}
           onError={(e) => {
             console.error("Audio stream error:", e)
-            setIsBuffering(false)
+            if (currentSong && audioRetryRef.current.id === currentSong.id && audioRetryRef.current.count < 2) {
+              audioRetryRef.current.count += 1
+              console.log(`Auto-retrying audio playback (attempt ${audioRetryRef.current.count})...`)
+              setTimeout(() => {
+                if (audioRef.current && currentSong) {
+                  const baseAudioUrl = getFullAudioUrl(currentSong.streamUrl)
+                  const sep = baseAudioUrl.includes("?") ? "&" : "?"
+                  audioRef.current.src = `${baseAudioUrl}${sep}_retry=${audioRetryRef.current.count}&_t=${Date.now()}`
+                  audioRef.current.load()
+                  if (isPlaying) {
+                    audioRef.current.play().catch((err) => console.log("Auto-retry play prevented:", err))
+                  }
+                }
+              }, 1200)
+            } else {
+              setIsBuffering(false)
+            }
           }}
           onEnded={handleEnded}
         />
