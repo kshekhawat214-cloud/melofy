@@ -28,7 +28,7 @@ export default function MobileTabBar() {
   ]
 
   return (
-    <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-[#121212]/95 backdrop-blur-md border-t border-[#222] h-14 flex items-center justify-around px-4 pb-[env(safe-area-inset-bottom)] select-none">
+    <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 liquid-glass-elevated border-t border-white/15 h-14 flex items-center justify-around px-4 pb-[env(safe-area-inset-bottom)] select-none backdrop-blur-3xl">
       {tabs.map((tab) => {
         const Icon = tab.icon
         return (

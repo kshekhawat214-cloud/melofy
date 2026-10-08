@@ -9,7 +9,7 @@ export default function QueuePanel() {
   if (!isQueueOpen) return null
 
   return (
-    <div className="fixed top-0 right-0 h-full md:h-[calc(100%-88px)] w-full sm:w-80 md:w-96 bg-[#121212] border-l border-white/10 z-50 flex flex-col animate-in slide-in-from-right duration-300 shadow-2xl">
+    <div className="fixed top-0 right-0 h-full md:h-[calc(100%-88px)] w-full sm:w-80 md:w-96 liquid-glass-elevated border-l border-white/15 z-50 flex flex-col animate-in slide-in-from-right duration-300 shadow-2xl">
       <div className="p-4 flex items-center justify-between border-b border-white/5">
         <h2 className="text-lg font-bold text-white">Queue</h2>
         <button onClick={toggleQueue} className="text-[#b3b3b3] hover:text-white transition">

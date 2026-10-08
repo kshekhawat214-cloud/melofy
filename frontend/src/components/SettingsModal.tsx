@@ -49,10 +49,10 @@ export default function SettingsModal() {
   const ACCENT_COLORS = ["#1db954", "#1ed760", "#3d91f4", "#9b51e0", "#ff4b4b", "#f59e0b"]
 
   return (
-    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[110] flex items-center justify-center p-4 animate-in fade-in duration-150">
-      <div className="bg-[#181818] w-full max-w-xl rounded-xl shadow-2xl overflow-hidden border border-[#2a2a2a] text-white">
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-md z-[110] flex items-center justify-center p-4 animate-in fade-in duration-150">
+      <div className="liquid-glass-elevated w-full max-w-xl rounded-2xl shadow-2xl overflow-hidden border border-white/20 backdrop-blur-3xl text-white">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[#2a2a2a]">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-white/10">
           <div className="flex items-center space-x-2">
             <Sliders size={20} className="text-[#1db954]" />
             <h2 className="text-xl font-bold">Settings</h2>

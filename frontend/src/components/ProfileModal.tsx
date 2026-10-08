@@ -18,10 +18,10 @@ export default function ProfileModal() {
   if (!isProfileOpen) return null
 
   return (
-    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[110] flex items-center justify-center p-4 animate-in fade-in duration-150">
-      <div className="bg-[#181818] w-full max-w-xl rounded-xl shadow-2xl overflow-hidden border border-[#2a2a2a] text-white">
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-md z-[110] flex items-center justify-center p-4 animate-in fade-in duration-150">
+      <div className="liquid-glass-elevated w-full max-w-xl rounded-2xl shadow-2xl overflow-hidden border border-white/20 backdrop-blur-3xl text-white">
         {/* Banner with Profile */}
-        <div className="bg-gradient-to-b from-indigo-900/60 to-[#181818] p-6 relative">
+        <div className="bg-gradient-to-b from-indigo-900/40 to-transparent p-6 relative">
           <button
             onClick={closeProfile}
             className="absolute top-4 right-4 text-[#b3b3b3] hover:text-white p-1 rounded-full bg-black/40 hover:bg-black/60 transition"

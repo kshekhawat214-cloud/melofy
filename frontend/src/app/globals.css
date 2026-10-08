@@ -34,6 +34,75 @@ body {
   border-top: 1px solid rgba(255, 255, 255, 0.05);
 }
 
+/* --- LIQUID GLASS DESIGN SYSTEM (Apple VisionOS / macOS Big Sur Refractive Aesthetics) --- */
+.liquid-glass {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.02) 100%), rgba(18, 18, 18, 0.72);
+  backdrop-filter: blur(28px) saturate(190%);
+  -webkit-backdrop-filter: blur(28px) saturate(190%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.45), inset 0 1px 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+.liquid-glass-elevated {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.14) 0%, rgba(255, 255, 255, 0.03) 100%), rgba(20, 20, 20, 0.82);
+  backdrop-filter: blur(36px) saturate(210%);
+  -webkit-backdrop-filter: blur(36px) saturate(210%);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow: 0 16px 48px 0 rgba(0, 0, 0, 0.6), inset 0 1.5px 2px 0 rgba(255, 255, 255, 0.28);
+}
+
+.liquid-glass-card {
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0.01) 100%), rgba(24, 24, 24, 0.55);
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.liquid-glass-card:hover {
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0.03) 100%), rgba(32, 32, 32, 0.75);
+  border-color: rgba(255, 255, 255, 0.2);
+  transform: translateY(-2px);
+  box-shadow: 0 12px 30px 0 rgba(0, 0, 0, 0.5), inset 0 1px 1.5px 0 rgba(255, 255, 255, 0.25);
+}
+
+.liquid-pill {
+  background: rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow: inset 0 1px 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+/* Ambient Aura Glow Keyframe Animations */
+@keyframes aura-float-1 {
+  0% { transform: translate(0px, 0px) scale(1); }
+  50% { transform: translate(-30px, 20px) scale(1.08); }
+  100% { transform: translate(0px, 0px) scale(1); }
+}
+
+@keyframes aura-float-2 {
+  0% { transform: translate(0px, 0px) scale(1); }
+  50% { transform: translate(25px, -25px) scale(1.12); }
+  100% { transform: translate(0px, 0px) scale(1); }
+}
+
+@keyframes aura-pulse {
+  0%, 100% { opacity: 0.55; transform: scale(1); }
+  50% { opacity: 0.85; transform: scale(1.04); }
+}
+
+.animate-aura-1 {
+  animation: aura-float-1 12s ease-in-out infinite;
+}
+
+.animate-aura-2 {
+  animation: aura-float-2 15s ease-in-out infinite;
+}
+
+.animate-aura-pulse {
+  animation: aura-pulse 6s ease-in-out infinite;
+}
+
 * {
   box-sizing: border-box;
 }

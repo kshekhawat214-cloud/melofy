@@ -61,16 +61,16 @@ export default function LikedSongsPage() {
   }
 
   return (
-    <div className="flex-1 overflow-y-auto bg-[#121212] h-full relative scroll-smooth rounded-lg text-white select-none scrollbar-hidden">
+    <div className="flex-1 overflow-y-auto bg-[#101014]/75 backdrop-blur-2xl h-full relative scroll-smooth rounded-lg text-white select-none scrollbar-hidden">
       {/* Purple Gradient Hero Banner */}
-      <div className="absolute top-0 left-0 w-full h-[380px] bg-gradient-to-b from-indigo-800 via-purple-900/60 to-[#121212] z-0" />
+      <div className="absolute top-0 left-0 w-full h-[380px] bg-gradient-to-b from-indigo-800/40 via-purple-900/30 to-transparent z-0 pointer-events-none" />
 
       <Header />
 
       <main className="relative z-10 pb-36">
         {/* Header Hero */}
         <div className="flex flex-col sm:flex-row items-center sm:items-end px-4 sm:px-8 pt-6 sm:pt-8 pb-4 sm:pb-6 space-y-4 sm:space-y-0 sm:space-x-6 text-center sm:text-left">
-          <div className="w-44 h-44 sm:w-56 sm:h-56 flex-shrink-0 rounded-lg overflow-hidden shadow-2xl shadow-black/80 bg-gradient-to-br from-indigo-600 via-purple-600 to-blue-400 flex items-center justify-center">
+          <div className="w-44 h-44 sm:w-56 sm:h-56 flex-shrink-0 rounded-2xl overflow-hidden shadow-2xl shadow-black/80 bg-gradient-to-br from-indigo-600 via-purple-600 to-blue-400 flex items-center justify-center border border-white/20">
             <span className="text-white text-6xl sm:text-7xl">❤️</span>
           </div>
 
@@ -94,7 +94,7 @@ export default function LikedSongsPage() {
         </div>
 
         {/* Action Row */}
-        <div className="px-4 sm:px-8 py-3 sm:py-5 flex items-center space-x-4 sm:space-x-6 sticky top-0 z-20 bg-gradient-to-b from-black/60 to-[#121212]/95 backdrop-blur-md">
+        <div className="px-4 sm:px-8 py-3 sm:py-5 flex items-center space-x-4 sm:space-x-6 sticky top-0 z-20 bg-[#101014]/60 backdrop-blur-xl border-b border-white/5">
           <button
             onClick={handlePlayLiked}
             disabled={songs.length === 0}

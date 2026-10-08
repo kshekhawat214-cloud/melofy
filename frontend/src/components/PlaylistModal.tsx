@@ -62,10 +62,10 @@ export default function PlaylistModal() {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[110] flex items-center justify-center p-4 animate-in fade-in duration-150">
-      <div className="bg-[#282828] w-full max-w-lg rounded-xl shadow-2xl overflow-hidden border border-[#3e3e3e]">
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-md z-[110] flex items-center justify-center p-4 animate-in fade-in duration-150">
+      <div className="liquid-glass-elevated w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden backdrop-blur-3xl border border-white/20">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[#383838]">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-white/10">
           <h2 className="text-xl font-bold text-white">
             {isEditing ? "Edit details" : "Create playlist"}
           </h2>

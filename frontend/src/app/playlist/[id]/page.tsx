@@ -225,9 +225,9 @@ export default function PlaylistPage({ params }: { params: Promise<{ id: string 
   const moodTone = getSongMoodColor(playlist.id + playlist.name)
 
   return (
-    <div className="flex-1 overflow-y-auto bg-[#121212] h-full relative scroll-smooth rounded-lg text-white select-none scrollbar-hidden">
+    <div className="flex-1 overflow-y-auto bg-[#101014]/75 backdrop-blur-2xl h-full relative scroll-smooth rounded-lg text-white select-none scrollbar-hidden">
       {/* Dynamic Header Gradient Block */}
-      <div className={`absolute top-0 left-0 w-full h-[380px] bg-gradient-to-b ${moodTone.bgFrom} via-[#121212]/85 to-[#121212] z-0 transition-all duration-700`} />
+      <div className={`absolute top-0 left-0 w-full h-[400px] bg-gradient-to-b ${moodTone.bgFrom}/45 via-[#101014]/70 to-transparent z-0 transition-all duration-700 pointer-events-none`} />
 
       <Header />
 
@@ -366,7 +366,7 @@ export default function PlaylistPage({ params }: { params: Promise<{ id: string 
             {showOptionsMenu && (
               <div
                 onMouseLeave={() => setShowOptionsMenu(false)}
-                className="absolute left-0 top-10 w-52 bg-[#282828] border border-[#383838] rounded-md shadow-2xl py-1 z-50 text-sm text-[#e0e0e0] animate-in fade-in duration-100 divide-y divide-[#383838]"
+                className="absolute left-0 top-10 w-52 liquid-glass-elevated rounded-xl shadow-2xl py-1 z-50 text-sm text-[#e0e0e0] animate-in fade-in duration-100 divide-y divide-white/10"
               >
                 <div className="py-1">
                   {isOwner ? (

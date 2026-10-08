@@ -65,7 +65,7 @@ export default function ArtistPage({ params }: { params: Promise<{ id: string }>
   }
 
   return (
-    <div className="flex-1 overflow-y-auto bg-[#121212] h-full relative scroll-smooth rounded-lg text-white select-none scrollbar-hidden">
+    <div className="flex-1 overflow-y-auto bg-[#101014]/75 backdrop-blur-2xl h-full relative scroll-smooth rounded-lg text-white select-none scrollbar-hidden">
       {/* Darkened Banner Hero with Artist Image */}
       <div className="relative h-80 w-full overflow-hidden">
         <img
@@ -73,7 +73,7 @@ export default function ArtistPage({ params }: { params: Promise<{ id: string }>
           alt={artist.name}
           className="w-full h-full object-cover filter brightness-50"
         />
-        <div className="absolute inset-0 bg-gradient-to-t from-[#121212] via-transparent to-black/30" />
+        <div className="absolute inset-0 bg-gradient-to-t from-[#101014]/90 via-transparent to-black/30" />
 
         <div className="absolute top-0 left-0 w-full">
           <Header />

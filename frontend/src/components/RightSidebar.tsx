@@ -31,7 +31,7 @@ export default function RightSidebar() {
   const coverSrc = getSongCover(currentSong, 500)
 
   return (
-    <div className="w-[340px] bg-[#121212] rounded-lg flex-shrink-0 flex flex-col h-[calc(100vh-90px)] overflow-hidden border-l border-black/40 text-white animate-in slide-in-from-right duration-200">
+    <div className="w-[340px] liquid-glass rounded-2xl flex-shrink-0 flex flex-col h-full overflow-hidden text-white animate-in slide-in-from-right duration-200">
       {/* Top Header */}
       <div className="p-4 flex items-center justify-between border-b border-[#242424]">
         <div className="flex items-center space-x-2">

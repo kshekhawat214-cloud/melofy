@@ -32,7 +32,7 @@ export default function LibraryPage() {
   )
 
   return (
-    <div className="flex-1 overflow-y-auto bg-[#121212] h-full text-white select-none pb-40 md:pb-36 scrollbar-hidden">
+    <div className="flex-1 overflow-y-auto bg-[#101014]/75 backdrop-blur-2xl h-full text-white select-none pb-40 md:pb-36 scrollbar-hidden">
       <Header />
 
       <main className="p-4 sm:p-6 space-y-4 max-w-5xl mx-auto">

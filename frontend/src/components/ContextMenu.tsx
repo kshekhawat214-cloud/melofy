@@ -163,7 +163,7 @@ export default function ContextMenu() {
           <div className="absolute inset-0" onClick={handleDismiss} />
           <div
             ref={menuRef}
-            className="relative z-10 bg-[#242424] rounded-t-2xl max-h-[85vh] overflow-y-auto p-4 pb-8 border-t border-white/10 shadow-2xl animate-in slide-in-from-bottom duration-250 select-none text-[#e0e0e0]"
+            className="relative z-10 liquid-glass-elevated rounded-t-3xl max-h-[85vh] overflow-y-auto p-4 pb-8 border-t border-white/20 shadow-2xl animate-in slide-in-from-bottom duration-250 select-none text-[#e0e0e0] backdrop-blur-3xl"
           >
             {/* Grab pill */}
             <div className="w-10 h-1 bg-white/20 rounded-full mx-auto mb-3" />
@@ -250,7 +250,7 @@ export default function ContextMenu() {
       <div
         ref={menuRef}
         style={{ top: `${clampedY}px`, left: `${clampedX}px` }}
-        className="fixed z-[120] w-56 bg-[#282828] border border-[#383838] rounded-md shadow-2xl py-1 text-sm text-[#e0e0e0] font-normal animate-in fade-in duration-100 select-none"
+        className="fixed z-[120] w-56 liquid-glass-elevated rounded-xl shadow-2xl py-1 text-sm text-[#e0e0e0] font-normal animate-in fade-in duration-100 select-none backdrop-blur-2xl"
       >
         <button
           onClick={() => {
@@ -373,7 +373,7 @@ export default function ContextMenu() {
         <div className="absolute inset-0" onClick={handleDismiss} />
         <div
           ref={menuRef}
-          className="relative z-10 bg-[#242424] rounded-t-2xl max-h-[85vh] overflow-y-auto p-4 pb-8 border-t border-white/10 shadow-2xl animate-in slide-in-from-bottom duration-250 select-none text-[#e0e0e0]"
+          className="relative z-10 liquid-glass-elevated rounded-t-3xl max-h-[85vh] overflow-y-auto p-4 pb-8 border-t border-white/20 shadow-2xl animate-in slide-in-from-bottom duration-250 select-none text-[#e0e0e0] backdrop-blur-3xl"
         >
           {/* Grab pill */}
           <div className="w-10 h-1 bg-white/20 rounded-full mx-auto mb-3" />
@@ -510,7 +510,7 @@ export default function ContextMenu() {
     <div
       ref={menuRef}
       style={{ top: `${clampedY}px`, left: `${clampedX}px` }}
-      className="fixed z-[120] w-56 bg-[#282828] border border-[#383838] rounded-md shadow-2xl py-1 text-sm text-[#e0e0e0] font-normal animate-in fade-in duration-100 select-none"
+      className="fixed z-[120] w-56 liquid-glass-elevated rounded-xl shadow-2xl py-1 text-sm text-[#e0e0e0] font-normal animate-in fade-in duration-100 select-none backdrop-blur-2xl"
     >
       <button
         onClick={() => {
@@ -557,7 +557,7 @@ export default function ContextMenu() {
 
         {/* Submenu */}
         {showPlaylistsSubmenu && (
-          <div className="absolute left-full top-0 ml-0.5 w-52 bg-[#282828] border border-[#383838] rounded-md shadow-2xl py-1 z-30 max-h-64 overflow-y-auto">
+          <div className="absolute left-full top-0 ml-1 w-52 liquid-glass-elevated rounded-xl shadow-2xl py-1 z-30 max-h-64 overflow-y-auto backdrop-blur-2xl">
             <button
               onClick={() => {
                 closeContextMenu()

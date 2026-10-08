@@ -71,10 +71,10 @@ export default function Sidebar() {
     <div
       style={{ width: `${effectiveWidth}px` }}
       suppressHydrationWarning
-      className="relative flex-shrink-0 flex flex-col h-[calc(100vh-90px)] select-none space-y-2"
+      className="relative flex-shrink-0 flex flex-col h-full select-none space-y-2"
     >
       {/* Top Nav Block */}
-      <div className="bg-[#121212] rounded-lg p-4 space-y-4">
+      <div className="liquid-glass rounded-2xl p-4 space-y-4">
         <Link
           href="/"
           onClick={(e) => {
@@ -105,7 +105,7 @@ export default function Sidebar() {
       </div>
 
       {/* Library Block */}
-      <div className="bg-[#121212] rounded-lg flex-1 overflow-hidden flex flex-col">
+      <div className="liquid-glass rounded-2xl flex-1 overflow-hidden flex flex-col">
         {/* Header */}
         <div className="p-4 flex items-center justify-between text-[#b3b3b3] pb-2">
           <button

@@ -1,5 +1,5 @@
 "use client"
-import { useEffect, useRef, useState, useCallback } from "react"
+import { useEffect, useRef, useState, useCallback, useMemo } from "react"
 import {
   Play,
   Pause,
@@ -21,12 +21,21 @@ import {
   ChevronDown,
   MoreHorizontal,
   Minimize2,
+  Sun,
+  Sliders,
+  Sparkles,
+  Zap,
+  Radio,
+  Disc3,
+  Activity,
 } from "lucide-react"
 import { usePlayerStore } from "@/store/playerStore"
 import { useUIStore } from "@/store/uiStore"
 import { useAuthStore } from "@/store/authStore"
 import { API_BASE, getSongCover, recordInteraction } from "@/lib/api"
 import { getSongMoodColor } from "@/lib/colors"
+import { SOUNDSTAGE_PROFILES } from "@/lib/soundstage"
+import PlayerVisualizer from "@/components/PlayerVisualizer"
 
 export default function Player() {
   const {
@@ -54,9 +63,15 @@ export default function Player() {
     toggleQueue,
     isRightSidebarOpen,
     toggleRightSidebar,
+    ambientLighting,
+    toggleAmbientLighting,
+    soundstageMode,
+    setSoundstageMode,
+    visualizerMode,
+    setVisualizerMode,
   } = usePlayerStore()
 
-  const { likedSongIds, toggleLikeSong, openContextMenu } = useUIStore()
+  const { likedSongIds, toggleLikeSong, openContextMenu, addToast } = useUIStore()
 
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const audioRetryRef = useRef<{ id: string; count: number }>({ id: "", count: 0 })
@@ -73,6 +88,11 @@ export default function Player() {
   const [sheetTranslateY, setSheetTranslateY] = useState(0)
   const sheetTouchStartY = useRef(0)
   const [isDesktopFullscreenOpen, setIsDesktopFullscreenOpen] = useState(false)
+  const [showSoundstageMenu, setShowSoundstageMenu] = useState(false)
+
+  const moodTone = useMemo(() => {
+    return getSongMoodColor(currentSong?.title || currentSong?.genre || "pop")
+  }, [currentSong?.id, currentSong?.title, currentSong?.genre])
 
   // Spotify-grade smooth scrubbing & dragging state
   const [isDraggingProgress, setIsDraggingProgress] = useState(false)
@@ -486,7 +506,6 @@ export default function Player() {
   const progressPercent = Math.max(0, Math.min(100, (displayProgress / (duration || 1)) * 100))
 
   const coverUrl = getSongCover(currentSong, 300)
-  const moodTone = getSongMoodColor(currentSong?.id || currentSong?.title)
 
   return (
     <>
@@ -567,17 +586,27 @@ export default function Player() {
         />
       )}
 
-      {/* MOBILE MINI-PLAYER (56px docked above bottom navigation tab bar at bottom-14) */}
+      {/* MOBILE MINI-PLAYER (Floating Liquid Glass Capsule above bottom nav) */}
       {currentSong && (
         <div
           onClick={openMobileNowPlaying}
-          className="md:hidden fixed bottom-14 left-2 right-2 z-30 h-14 bg-[#242424] rounded-lg shadow-2xl flex items-center justify-between px-3 cursor-pointer border border-white/10 active:scale-[0.99] transition-transform overflow-hidden select-none"
+          className="md:hidden fixed bottom-16 left-3 right-3 z-30 h-15 liquid-glass-elevated rounded-2xl flex items-center justify-between px-3.5 cursor-pointer active:scale-[0.99] transition-all overflow-hidden select-none"
+          style={{
+            boxShadow:
+              ambientLighting && isPlaying
+                ? `0 14px 36px 0 rgba(0, 0, 0, 0.75), 0 0 25px -3px ${moodTone.glowRgba}`
+                : "0 10px 30px rgba(0, 0, 0, 0.55)",
+          }}
         >
-          {/* Thin progress line along the bottom edge */}
-          <div className="absolute bottom-0 left-0 right-0 h-[2.5px] bg-white/20">
+          {/* Glowing liquid progress line along the bottom edge */}
+          <div className="absolute bottom-0 left-0 right-0 h-[2.5px] bg-white/10">
             <div
-              className="h-full bg-[#1db954] transition-all"
-              style={{ width: `${(progress / (duration || 1)) * 100}%` }}
+              className="h-full transition-all"
+              style={{
+                width: `${(progress / (duration || 1)) * 100}%`,
+                background: `linear-gradient(90deg, ${moodTone.primary}, ${moodTone.accent})`,
+                boxShadow: isPlaying ? `0 0 8px ${moodTone.glowRgba}` : undefined,
+              }}
             />
           </div>
 
@@ -818,16 +847,24 @@ export default function Player() {
         </div>
       )}
 
-      {/* DESKTOP & TABLET BOTTOM PLAYER BAR */}
-      <footer className="hidden md:flex h-[88px] bg-black border-t border-[#1a1a1a] fixed bottom-0 left-0 w-full z-50 items-center justify-between px-4 select-none">
+      {/* DESKTOP & TABLET FLOATING LIQUID GLASS DOCK */}
+      <footer
+        className="hidden md:flex h-[90px] fixed bottom-3 left-4 right-4 md:left-6 md:right-6 rounded-2xl liquid-glass-elevated z-50 items-center justify-between px-5 select-none transition-all duration-300"
+        style={{
+          boxShadow:
+            ambientLighting && isPlaying
+              ? `0 20px 50px 0 rgba(0, 0, 0, 0.75), 0 0 35px -5px ${moodTone.glowRgba}`
+              : "0 14px 40px 0 rgba(0, 0, 0, 0.65)",
+        }}
+      >
         {/* Left Column: Track Info & Likes */}
-        <div className="flex items-center w-[30%] min-w-[200px] space-x-3.5">
+        <div className="flex items-center w-[30%] min-w-[220px] space-x-3.5">
           {currentSong ? (
             <>
-              <div className="w-14 h-14 bg-[#282828] rounded-md overflow-hidden relative group cursor-pointer shadow-md flex-shrink-0">
+              <div className="w-14 h-14 bg-[#282828] rounded-xl overflow-hidden relative group cursor-pointer shadow-lg flex-shrink-0 border border-white/10">
                 <img src={coverUrl} alt="Album Art" className="w-full h-full object-cover" />
               </div>
-              <div className="flex flex-col justify-center overflow-hidden max-w-[160px] md:max-w-xs">
+              <div className="flex flex-col justify-center overflow-hidden max-w-[150px] lg:max-w-xs">
                 <span className="text-sm font-semibold text-white hover:underline truncate cursor-pointer">
                   {currentSong.title}
                 </span>
@@ -835,9 +872,33 @@ export default function Player() {
                   {currentSong.artist}
                 </span>
               </div>
+
+              {/* Exclusive Melofy AI Energy Badge */}
+              {currentSong.energy && (
+                <div
+                  className="hidden xl:flex items-center space-x-1 px-2 py-0.5 rounded-full liquid-pill text-[10px] text-white/80 flex-shrink-0"
+                  title="AI Sound Energy Profile"
+                >
+                  <Sparkles size={10} className="text-emerald-400" />
+                  <span>{Math.round(currentSong.energy * 100)}%</span>
+                </div>
+              )}
+
+              {/* Integrated Mini Visualizer */}
+              <div
+                onClick={() => {
+                  const next = visualizerMode === "spectrum" ? "pulse" : visualizerMode === "pulse" ? "off" : "spectrum"
+                  setVisualizerMode(next)
+                }}
+                className="hidden lg:block w-14 flex-shrink-0 cursor-pointer opacity-80 hover:opacity-100 transition"
+                title={`Live Visualizer: ${visualizerMode.toUpperCase()} (Click to toggle)`}
+              >
+                <PlayerVisualizer mode={visualizerMode} moodTone={moodTone} height={18} barCount={10} />
+              </div>
+
               <button
                 onClick={() => toggleLikeSong(currentSong)}
-                className="text-[#b3b3b3] hover:scale-110 active:scale-95 transition-transform ml-1"
+                className="text-[#b3b3b3] hover:scale-110 active:scale-95 transition-transform ml-1 flex-shrink-0"
                 aria-label={isLiked ? "Remove from Liked Songs" : "Save to Liked Songs"}
               >
                 <Heart
@@ -851,7 +912,7 @@ export default function Player() {
                   e.stopPropagation()
                   openContextMenu(e.clientX, e.clientY - 200, currentSong)
                 }}
-                className="text-[#b3b3b3] hover:text-white transition"
+                className="text-[#b3b3b3] hover:text-white transition flex-shrink-0"
                 title="Add to playlist"
               >
                 <PlusCircle size={18} />
@@ -864,7 +925,7 @@ export default function Player() {
           )}
         </div>
 
-        {/* Center Column: Playback Controls & Progress Bar */}
+        {/* Center Column: Playback Controls & Glowing Liquid Progress Bar */}
         <div className="flex flex-col items-center max-w-[42%] w-full">
           {/* Buttons */}
           <div className="flex items-center space-x-5 mb-1.5">
@@ -892,7 +953,10 @@ export default function Player() {
             <button
               onClick={togglePlay}
               disabled={!currentSong}
-              className="w-8 h-8 rounded-full bg-white text-black flex items-center justify-center hover:scale-106 active:scale-95 transition shadow-lg disabled:opacity-40"
+              className="w-9 h-9 rounded-full bg-white text-black flex items-center justify-center hover:scale-106 active:scale-95 transition shadow-lg disabled:opacity-40"
+              style={{
+                boxShadow: isPlaying ? `0 0 16px ${moodTone.glowRgba}` : undefined,
+              }}
               title={isPlaying ? "Pause" : "Play"}
             >
               {isBuffering && isPlaying ? (
@@ -926,7 +990,7 @@ export default function Player() {
             </button>
           </div>
 
-          {/* Progress Bar & Durations */}
+          {/* Glowing Liquid Progress Bar & Durations */}
           <div className="flex items-center w-full space-x-2 text-xs font-mono text-[#a7a7a7]">
             <span className="min-w-[34px] text-right">{formatTime(displayProgress)}</span>
             <div
@@ -944,13 +1008,18 @@ export default function Player() {
               suppressHydrationWarning
               className="py-2.5 -my-2.5 flex items-center flex-grow max-w-[500px] cursor-pointer group/progress touch-none select-none"
             >
-              <div className="h-1 group-hover/progress:h-1.5 bg-[#4d4d4d] rounded-full w-full relative transition-all">
+              <div className="h-1 group-hover/progress:h-1.5 bg-white/15 rounded-full w-full relative transition-all">
                 <div
                   suppressHydrationWarning
-                  className={`h-full absolute top-0 left-0 rounded-full transition-colors ${
-                    isHoveringProgress || isDraggingProgress ? "bg-[#1db954]" : "bg-white"
-                  }`}
-                  style={{ width: `${progressPercent}%` }}
+                  className="h-full absolute top-0 left-0 rounded-full transition-all"
+                  style={{
+                    width: `${progressPercent}%`,
+                    background:
+                      isHoveringProgress || isDraggingProgress
+                        ? "#1db954"
+                        : `linear-gradient(90deg, ${moodTone.primary}, ${moodTone.accent})`,
+                    boxShadow: isPlaying ? `0 0 10px ${moodTone.glowRgba}` : undefined,
+                  }}
                 />
                 {(isHoveringProgress || isDraggingProgress) && (
                   <div
@@ -965,41 +1034,106 @@ export default function Player() {
           </div>
         </div>
 
-        {/* Right Column: Auxiliary Controls */}
-        <div className="flex items-center w-[30%] justify-end space-x-3 text-[#b3b3b3]">
+        {/* Right Column: Auxiliary Controls, Soundstage & Ambient Light */}
+        <div className="flex items-center w-[30%] justify-end space-x-2.5 text-[#b3b3b3]">
+          {/* Ambient Lighting Toggle Button */}
+          <button
+            onClick={toggleAmbientLighting}
+            className={`p-1.5 rounded-lg transition ${
+              ambientLighting
+                ? "text-amber-400 bg-amber-400/10 shadow-[0_0_12px_rgba(251,191,36,0.35)]"
+                : "text-white/40 hover:text-white/70"
+            }`}
+            title={ambientLighting ? "Ambient Aura: Active (Click to toggle)" : "Ambient Aura: Off"}
+          >
+            <Sun size={17} />
+          </button>
+
+          {/* Soundstage DSP Audio Enhancer Button with Popover */}
+          <div className="relative">
+            <button
+              onClick={() => setShowSoundstageMenu(!showSoundstageMenu)}
+              className={`p-1.5 rounded-lg transition flex items-center space-x-1 text-xs font-semibold ${
+                soundstageMode !== "pure"
+                  ? "text-cyan-400 bg-cyan-400/10 shadow-[0_0_12px_rgba(6,182,212,0.35)]"
+                  : "text-[#b3b3b3] hover:text-white"
+              }`}
+              title="Acoustic Soundstage Profiles"
+            >
+              <Sliders size={17} />
+            </button>
+
+            {/* Liquid Glass Soundstage Popover Menu */}
+            {showSoundstageMenu && (
+              <div className="absolute bottom-12 right-0 w-64 p-2.5 rounded-2xl liquid-glass-elevated shadow-2xl z-50 text-white space-y-1 animate-in fade-in slide-in-from-bottom-2 duration-150">
+                <div className="flex items-center justify-between px-2 py-1 border-b border-white/10 mb-1">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-neutral-400 flex items-center gap-1.5">
+                    <Sparkles size={12} className="text-emerald-400" /> Soundstage DSP
+                  </span>
+                  <span className="text-[10px] text-emerald-400 bg-emerald-400/10 px-1.5 py-0.5 rounded font-mono">
+                    EXCLUSIVE
+                  </span>
+                </div>
+                {SOUNDSTAGE_PROFILES.map((profile) => (
+                  <button
+                    key={profile.id}
+                    onClick={() => {
+                      setSoundstageMode(profile.id)
+                      setShowSoundstageMenu(false)
+                      addToast(`Soundstage: ${profile.name} Active 🎧`, "info")
+                    }}
+                    className={`w-full text-left px-2.5 py-2 rounded-xl text-xs transition flex items-center justify-between cursor-pointer ${
+                      soundstageMode === profile.id
+                        ? "bg-white/15 text-white font-bold border border-white/20"
+                        : "hover:bg-white/5 text-neutral-300"
+                    }`}
+                  >
+                    <div>
+                      <div className="font-semibold">{profile.name}</div>
+                      <div className="text-[10px] text-neutral-400 font-normal">{profile.description}</div>
+                    </div>
+                    {soundstageMode === profile.id && (
+                      <div className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_#10b981]" />
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
           <button
             onClick={toggleLyrics}
-            className={`hover:text-white transition p-1 ${isLyricsOpen ? "text-[#1db954]" : ""}`}
+            className={`hover:text-white transition p-1.5 rounded-lg ${isLyricsOpen ? "text-[#1db954]" : ""}`}
             title="Lyrics"
           >
-            <Mic2 size={18} />
+            <Mic2 size={17} />
           </button>
 
           <button
             onClick={toggleQueue}
-            className={`hover:text-white transition p-1 ${isQueueOpen ? "text-[#1db954]" : ""}`}
+            className={`hover:text-white transition p-1.5 rounded-lg ${isQueueOpen ? "text-[#1db954]" : ""}`}
             title="Queue"
           >
-            <ListMusic size={18} />
+            <ListMusic size={17} />
           </button>
 
           <button
             onClick={toggleRightSidebar}
-            className={`hover:text-white transition p-1 ${isRightSidebarOpen ? "text-[#1db954]" : ""}`}
+            className={`hover:text-white transition p-1.5 rounded-lg ${isRightSidebarOpen ? "text-[#1db954]" : ""}`}
             title="Now playing view"
           >
-            <PanelRight size={18} />
+            <PanelRight size={17} />
           </button>
 
           {/* Volume Slider */}
-          <div className="flex items-center group w-28 ml-1">
-            <button onClick={toggleMute} className="hover:text-white transition mr-2">
+          <div className="flex items-center group w-24 lg:w-28 ml-0.5">
+            <button onClick={toggleMute} className="hover:text-white transition mr-1.5">
               {isMuted || volume === 0 ? (
-                <VolumeX size={18} />
+                <VolumeX size={17} />
               ) : volume < 0.5 ? (
-                <Volume1 size={18} />
+                <Volume1 size={17} />
               ) : (
-                <Volume2 size={18} />
+                <Volume2 size={17} />
               )}
             </button>
             <div
@@ -1017,7 +1151,7 @@ export default function Player() {
               suppressHydrationWarning
               className="py-2.5 -my-2.5 flex items-center flex-grow cursor-pointer group/volume touch-none select-none"
             >
-              <div className="h-1 group-hover/volume:h-1.5 bg-[#4d4d4d] rounded-full w-full relative transition-all">
+              <div className="h-1 group-hover/volume:h-1.5 bg-white/20 rounded-full w-full relative transition-all">
                 <div
                   suppressHydrationWarning
                   className={`h-full absolute top-0 left-0 rounded-full transition-colors ${
@@ -1040,7 +1174,7 @@ export default function Player() {
             onClick={() => {
               setIsDesktopFullscreenOpen(!isDesktopFullscreenOpen)
             }}
-            className={`hover:text-white transition p-1 ml-1 ${isDesktopFullscreenOpen ? "text-[#1db954]" : ""}`}
+            className={`hover:text-white transition p-1.5 rounded-lg ml-0.5 ${isDesktopFullscreenOpen ? "text-[#1db954]" : ""}`}
             title="Now playing full screen"
           >
             {isDesktopFullscreenOpen ? <Minimize2 size={17} /> : <Maximize2 size={17} />}
@@ -1048,32 +1182,80 @@ export default function Player() {
         </div>
       </footer>
 
-      {/* DESKTOP IMMERSIVE FULL-SCREEN VIEW */}
+      {/* DESKTOP IMMERSIVE FULL-SCREEN VIEW (Living Ambient Liquid Canvas) */}
       {isDesktopFullscreenOpen && currentSong && (
-        <div className="hidden md:flex fixed inset-0 z-[140] bg-gradient-to-b from-[#181818] via-[#121212] to-black flex-col justify-between p-12 text-white select-none animate-in fade-in duration-200">
-          <div className="flex items-center justify-between">
+        <div
+          className="hidden md:flex fixed inset-0 z-[140] flex-col justify-between p-12 text-white select-none animate-in fade-in duration-300 overflow-hidden"
+          style={{
+            background: `linear-gradient(180deg, #121212 0%, #080808 100%)`,
+          }}
+        >
+          {/* Living Ambient Mesh Background */}
+          {ambientLighting && (
+            <div
+              className="absolute inset-0 pointer-events-none opacity-40 transition-opacity duration-1000"
+              style={{
+                backgroundImage: moodTone.bgMesh,
+              }}
+            />
+          )}
+
+          {/* Top Bar */}
+          <div className="relative z-10 flex items-center justify-between">
             <div className="flex items-center space-x-3">
               <span className="text-xs uppercase tracking-widest text-[#b3b3b3] font-bold">
                 Playing from {currentSong.album || "Library"}
               </span>
+              {currentSong.energy && (
+                <div className="px-2.5 py-1 rounded-full liquid-pill text-xs flex items-center gap-1.5 text-white/90">
+                  <Sparkles size={12} className="text-emerald-400" />
+                  <span>{Math.round(currentSong.energy * 100)}% Energy</span>
+                </div>
+              )}
             </div>
-            <button
-              onClick={() => setIsDesktopFullscreenOpen(false)}
-              className="p-2.5 text-[#b3b3b3] hover:text-white rounded-full bg-white/5 hover:bg-white/10 transition"
-              title="Exit full screen (Esc)"
-            >
-              <Minimize2 size={24} />
-            </button>
+
+            <div className="flex items-center space-x-3">
+              {/* Ambient Aura Toggle */}
+              <button
+                onClick={toggleAmbientLighting}
+                className={`p-2.5 rounded-full transition ${
+                  ambientLighting
+                    ? "text-amber-400 bg-amber-400/10 shadow-[0_0_12px_rgba(251,191,36,0.35)]"
+                    : "text-white/40 hover:text-white/70 bg-white/5"
+                }`}
+                title="Toggle Ambient Lighting"
+              >
+                <Sun size={20} />
+              </button>
+
+              <button
+                onClick={() => setIsDesktopFullscreenOpen(false)}
+                className="p-2.5 text-[#b3b3b3] hover:text-white rounded-full bg-white/5 hover:bg-white/10 transition cursor-pointer"
+                title="Exit full screen (Esc)"
+              >
+                <Minimize2 size={22} />
+              </button>
+            </div>
           </div>
 
-          <div className="flex items-center justify-center space-x-12 my-auto max-w-5xl mx-auto w-full">
-            <div className="w-80 h-80 lg:w-96 lg:h-96 rounded-2xl overflow-hidden shadow-2xl shadow-black/90 bg-[#181818] flex-shrink-0 border border-white/10">
+          {/* Center Stage: Artwork & Track Details */}
+          <div className="relative z-10 flex items-center justify-center space-x-12 my-auto max-w-5xl mx-auto w-full">
+            <div
+              className="w-80 h-80 lg:w-96 lg:h-96 rounded-3xl overflow-hidden shadow-2xl bg-[#181818] flex-shrink-0 border border-white/15 transition-all duration-700"
+              style={{
+                boxShadow:
+                  ambientLighting && isPlaying
+                    ? `0 30px 80px -15px ${moodTone.glowRgba}, 0 10px 40px rgba(0,0,0,0.8)`
+                    : "0 25px 60px rgba(0,0,0,0.8)",
+              }}
+            >
               <img
                 src={getSongCover(currentSong, 640)}
                 alt={currentSong.title}
                 className="w-full h-full object-cover"
               />
             </div>
+
             <div className="flex flex-col space-y-4 max-w-md">
               <span className="text-4xl lg:text-5xl font-black text-white leading-tight">
                 {currentSong.title}
@@ -1086,10 +1268,16 @@ export default function Player() {
                   {currentSong.album}
                 </span>
               )}
+
+              {/* Large 60FPS Audio Visualizer on Center Stage */}
+              <div className="pt-2 w-72 opacity-90">
+                <PlayerVisualizer mode={visualizerMode} moodTone={moodTone} height={28} barCount={20} />
+              </div>
             </div>
           </div>
 
-          <div className="max-w-2xl mx-auto w-full space-y-4">
+          {/* Bottom Stage: Scrubber, Controls, Soundstage Presets */}
+          <div className="relative z-10 max-w-2xl mx-auto w-full space-y-4">
             {/* Scrubber Progress Bar */}
             <div className="space-y-1">
               <div
@@ -1099,10 +1287,14 @@ export default function Player() {
                 }}
                 className="py-3 -my-2.5 bg-transparent cursor-pointer relative flex items-center touch-none select-none group"
               >
-                <div className="w-full h-1.5 bg-white/20 rounded-full relative overflow-visible">
+                <div className="w-full h-1.5 bg-white/15 rounded-full relative overflow-visible">
                   <div
-                    className="h-full bg-[#1db954] rounded-full relative"
-                    style={{ width: `${progressPercent}%` }}
+                    className="h-full rounded-full relative transition-all"
+                    style={{
+                      width: `${progressPercent}%`,
+                      background: `linear-gradient(90deg, ${moodTone.primary}, ${moodTone.accent})`,
+                      boxShadow: isPlaying ? `0 0 12px ${moodTone.glowRgba}` : undefined,
+                    }}
                   >
                     <div className="w-3.5 h-3.5 bg-white rounded-full absolute -right-1.5 top-1/2 -translate-y-1/2 shadow-md" />
                   </div>
@@ -1135,6 +1327,9 @@ export default function Player() {
               <button
                 onClick={togglePlay}
                 className="w-16 h-16 rounded-full bg-white text-black flex items-center justify-center hover:scale-106 active:scale-95 shadow-xl transition"
+                style={{
+                  boxShadow: isPlaying ? `0 0 24px ${moodTone.glowRgba}` : undefined,
+                }}
                 title={isPlaying ? "Pause" : "Play"}
               >
                 {isBuffering && isPlaying ? (
@@ -1161,6 +1356,26 @@ export default function Player() {
               >
                 {repeatMode === "one" ? <Repeat1 size={24} /> : <Repeat size={24} />}
               </button>
+            </div>
+
+            {/* Soundstage Mode Pills Selector */}
+            <div className="flex items-center justify-center gap-2 pt-1">
+              {SOUNDSTAGE_PROFILES.map((profile) => (
+                <button
+                  key={profile.id}
+                  onClick={() => {
+                    setSoundstageMode(profile.id)
+                    addToast(`Soundstage: ${profile.name} Active 🎧`, "info")
+                  }}
+                  className={`px-3 py-1 rounded-full text-xs font-semibold transition cursor-pointer ${
+                    soundstageMode === profile.id
+                      ? "liquid-glass-elevated text-white border-white/30 shadow-md font-bold"
+                      : "text-white/50 hover:text-white/80 bg-white/5"
+                  }`}
+                >
+                  {profile.name}
+                </button>
+              ))}
             </div>
           </div>
         </div>

@@ -78,10 +78,10 @@ export default function SearchPage() {
   }
 
   return (
-    <div className="flex-1 overflow-y-auto bg-[#121212] h-full relative scroll-smooth rounded-lg text-white select-none scrollbar-hidden">
+    <div className="flex-1 overflow-y-auto bg-[#101014]/75 backdrop-blur-2xl h-full relative scroll-smooth rounded-lg text-white select-none scrollbar-hidden">
       {/* Header with Search Input */}
       <Header>
-        <div className="flex items-center bg-[#242424] hover:bg-[#2a2a2a] focus-within:bg-[#242424] focus-within:border-white text-white rounded-full px-4 py-2.5 w-full max-w-md border border-transparent transition-all group ml-2">
+        <div className="flex items-center bg-white/10 hover:bg-white/15 focus-within:bg-white/15 focus-within:border-white/30 text-white rounded-full px-4 py-2.5 w-full max-w-md border border-white/10 backdrop-blur-md transition-all group ml-2 shadow-inner">
           <SearchIcon size={18} className="text-[#b3b3b3] group-focus-within:text-white mr-3 flex-shrink-0" />
           <input
             type="text"
@@ -134,7 +134,7 @@ export default function SearchPage() {
                           playSongWithQueue(results.topResult.raw, results.songs)
                         }
                       }}
-                      className="bg-[#181818] hover:bg-[#282828] p-5 rounded-lg transition-all duration-300 group cursor-pointer relative"
+                      className="liquid-glass-card p-5 rounded-2xl transition-all duration-300 group cursor-pointer relative"
                     >
                       <img
                         src={results.topResult.coverUrl}

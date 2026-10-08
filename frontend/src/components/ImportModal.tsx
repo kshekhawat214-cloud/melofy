@@ -275,9 +275,9 @@ export default function ImportModal() {
 
   return (
     <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
-      <div className="bg-[#181818] border border-[#2d2d2d] w-full max-w-[580px] rounded-2xl shadow-2xl relative overflow-hidden flex flex-col max-h-[92vh]">
+      <div className="liquid-glass-elevated border border-white/20 w-full max-w-[580px] rounded-2xl shadow-2xl relative overflow-hidden flex flex-col max-h-[92vh] backdrop-blur-3xl">
         {/* Top Header */}
-        <div className="p-6 pb-4 border-b border-[#282828] relative">
+        <div className="p-6 pb-4 border-b border-white/10 relative">
           <button
             onClick={() => {
               closeImportModal()

@@ -33,9 +33,9 @@ function SongCard({ song, shelfSongs }: { song: Song; shelfSongs: Song[] }) {
         e.preventDefault()
         openContextMenu(e.clientX, e.clientY, song)
       }}
-      className="bg-[#181818] hover:bg-[#282828] p-3.5 rounded-lg transition-all duration-300 group cursor-pointer relative flex flex-col select-none flex-shrink-0 w-44"
+      className="liquid-glass-card p-3.5 rounded-2xl transition-all duration-300 group cursor-pointer relative flex flex-col select-none flex-shrink-0 w-44"
     >
-      <div className="relative mb-3 pb-[100%] rounded-md overflow-hidden shadow-lg shadow-black/60 bg-[#222]">
+      <div className="relative mb-3 pb-[100%] rounded-xl overflow-hidden shadow-lg shadow-black/60 bg-[#222] border border-white/10">
         <img
           src={coverSrc}
           className="absolute inset-0 w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
@@ -138,7 +138,7 @@ export default function Home() {
   const ambientTone = getSongMoodColor(currentSong?.id || quickAccessSongs[0]?.id || "tunely")
 
   return (
-    <div id="main-scroll-container" className={`flex-1 overflow-y-auto bg-gradient-to-b ${ambientTone.bgFrom} via-[#121212] to-[#121212] h-full relative scroll-smooth text-white scrollbar-hidden transition-colors duration-700`}>
+    <div id="main-scroll-container" className={`flex-1 overflow-y-auto bg-gradient-to-b ${ambientTone.bgFrom}/40 via-[#101014]/80 to-[#0a0a0d]/90 h-full relative scroll-smooth text-white scrollbar-hidden transition-colors duration-700`}>
       <Header />
 
       <main className="p-6 pb-36 space-y-8">
@@ -147,7 +147,7 @@ export default function Home() {
           {greeting}
         </h1>
 
-        {/* 2x4 Quick Access Grid */}
+        {/* 2x4 Quick Access Grid with Liquid Glass Refraction */}
         {quickAccessSongs.length > 0 && (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
             {quickAccessSongs.map((song) => {
@@ -157,7 +157,7 @@ export default function Home() {
                 <div
                   key={song.id}
                   onClick={() => playSongWithQueue(song, quickAccessSongs)}
-                  className="bg-white/5 hover:bg-white/15 transition-all duration-300 rounded-md flex items-center group cursor-pointer overflow-hidden h-16 shadow-md relative pr-3"
+                  className="liquid-glass-card rounded-xl flex items-center group cursor-pointer overflow-hidden h-16 relative pr-3 transition-all duration-300"
                 >
                   <img src={cover} className="h-full w-16 object-cover flex-shrink-0" alt="" />
                   <span className={`font-bold text-sm px-3.5 truncate flex-1 ${isCurrent ? "text-[#1db954]" : "text-white"}`}>
@@ -204,9 +204,9 @@ export default function Home() {
                 <Link
                   key={pl.id}
                   href={`/playlist/${pl.id}`}
-                  className="bg-[#181818] hover:bg-[#282828] p-3.5 rounded-lg transition-all duration-300 group cursor-pointer flex flex-col flex-shrink-0 w-44 snap-start"
+                  className="liquid-glass-card p-3.5 rounded-2xl transition-all duration-300 group cursor-pointer flex flex-col flex-shrink-0 w-44 snap-start select-none"
                 >
-                  <div className="relative mb-3 pb-[100%] rounded-md overflow-hidden shadow-lg bg-[#222]">
+                  <div className="relative mb-3 pb-[100%] rounded-xl overflow-hidden shadow-lg bg-[#222] border border-white/10">
                     <img
                       src={pl.coverUrl || "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=300&q=80"}
                       className="absolute inset-0 w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"

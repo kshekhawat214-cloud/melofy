@@ -3,6 +3,8 @@ import { Song, recordInteraction, getVibeQueue } from '@/lib/api'
 
 export type RepeatMode = 'off' | 'all' | 'one'
 export type RightSidebarView = 'now_playing' | 'queue'
+export type SoundstageMode = 'pure' | 'club_bass' | 'vocal_air' | 'spatial_concert'
+export type VisualizerMode = 'spectrum' | 'pulse' | 'off'
 
 interface PlayerState {
   currentSong: Song | null
@@ -22,6 +24,11 @@ interface PlayerState {
   isRightSidebarOpen: boolean
   rightSidebarView: RightSidebarView
 
+  // Melofy Exclusive: Ambient Aura & Soundstage Modes
+  ambientLighting: boolean
+  soundstageMode: SoundstageMode
+  visualizerMode: VisualizerMode
+
   // Actions
   setCurrentSong: (song: Song) => void
   setIsPlaying: (isPlaying: boolean) => void
@@ -37,6 +44,11 @@ interface PlayerState {
   setDuration: (duration: number) => void
   seekTo: (progress: number) => void
   fetchAndApplyVibeQueue: (seedSong: Song) => Promise<void>
+
+  // Ambient & Audio Enhancements
+  toggleAmbientLighting: () => void
+  setSoundstageMode: (mode: SoundstageMode) => void
+  setVisualizerMode: (mode: VisualizerMode) => void
   
   // Queue operations
   addToQueue: (song: Song) => void
@@ -96,6 +108,10 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   isQueueOpen: false,
   isRightSidebarOpen: false,
   rightSidebarView: 'now_playing',
+
+  ambientLighting: true,
+  soundstageMode: 'pure',
+  visualizerMode: 'spectrum',
 
   initFromStorage: () => {
     if (typeof window === 'undefined') return
@@ -160,6 +176,15 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
         ...(s !== null ? { shuffle: Boolean(JSON.parse(s)) } : {}),
         ...(r !== null ? { repeatMode: JSON.parse(r) } : {}),
         ...(rs !== null ? { isRightSidebarOpen: Boolean(JSON.parse(rs)) } : {}),
+        ...(localStorage.getItem('tunely_ambient_lighting') !== null
+          ? { ambientLighting: Boolean(JSON.parse(localStorage.getItem('tunely_ambient_lighting')!)) }
+          : {}),
+        ...(localStorage.getItem('tunely_soundstage_mode') !== null
+          ? { soundstageMode: JSON.parse(localStorage.getItem('tunely_soundstage_mode')!) }
+          : {}),
+        ...(localStorage.getItem('tunely_visualizer_mode') !== null
+          ? { visualizerMode: JSON.parse(localStorage.getItem('tunely_visualizer_mode')!) }
+          : {}),
       })
     } catch (e) {
       console.warn("Player storage restoration note:", e)
@@ -449,4 +474,18 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
     set({ isRightSidebarOpen: nextState })
   },
   setRightSidebarView: (view) => set({ rightSidebarView: view, isRightSidebarOpen: true }),
+
+  toggleAmbientLighting: () => {
+    const next = !get().ambientLighting
+    setStorage('tunely_ambient_lighting', next)
+    set({ ambientLighting: next })
+  },
+  setSoundstageMode: (mode) => {
+    setStorage('tunely_soundstage_mode', mode)
+    set({ soundstageMode: mode })
+  },
+  setVisualizerMode: (mode) => {
+    setStorage('tunely_visualizer_mode', mode)
+    set({ visualizerMode: mode })
+  },
 }))

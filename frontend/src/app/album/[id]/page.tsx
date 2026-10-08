@@ -63,9 +63,9 @@ export default function AlbumPage({ params }: { params: Promise<{ id: string }> 
   }
 
   return (
-    <div className="flex-1 overflow-y-auto bg-[#121212] h-full relative scroll-smooth rounded-lg text-white select-none scrollbar-hidden">
+    <div className="flex-1 overflow-y-auto bg-[#101014]/75 backdrop-blur-2xl h-full relative scroll-smooth rounded-lg text-white select-none scrollbar-hidden">
       {/* Background Gradient */}
-      <div className="absolute top-0 left-0 w-full h-[380px] bg-gradient-to-b from-stone-800/80 via-[#121212]/80 to-[#121212] z-0" />
+      <div className="absolute top-0 left-0 w-full h-[380px] bg-gradient-to-b from-stone-800/40 via-[#121212]/30 to-transparent z-0 pointer-events-none" />
 
       <Header />
 
