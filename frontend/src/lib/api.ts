@@ -215,6 +215,23 @@ export function getCachedPlaylists(): Playlist[] {
   return []
 }
 
+export function getCachedPlaylist(playlistId: string): Playlist | null {
+  if (typeof window === "undefined") return null
+  try {
+    const cachedItem = localStorage.getItem(`tunely_cache_playlist_${playlistId}`)
+    if (cachedItem) {
+      const parsed = JSON.parse(cachedItem)
+      if (parsed && parsed.id === playlistId) return parsed
+    }
+  } catch {}
+  try {
+    const list = getCachedPlaylists()
+    const found = list.find((p) => p.id === playlistId)
+    if (found) return found
+  } catch {}
+  return null
+}
+
 export function getCachedLikedIds(): string[] {
   if (typeof window === "undefined") return []
   try {
@@ -312,10 +329,22 @@ export async function getPlaylist(playlistId: string): Promise<Playlist | null> 
     const res = await fetchWithRetry(`${API_BASE}/api/playlists/${playlistId}`, {
       headers: getAuthHeaders(),
       cache: "no-store",
-    }, 1, 1000, 8000)
-    if (!res.ok) return null
-    return res.json()
-  } catch {
+    }, 2, 1200, 25000)
+    if (!res.ok) {
+      if (res.status === 404) return null
+      throw new Error(`Playlist fetch status: ${res.status}`)
+    }
+    const data = await res.json()
+    if (data?.id && typeof window !== "undefined") {
+      try {
+        localStorage.setItem(`tunely_cache_playlist_${data.id}`, JSON.stringify(data))
+      } catch {}
+    }
+    return data
+  } catch (err) {
+    console.warn("getPlaylist network error, attempting local cache retrieval:", err)
+    const cached = getCachedPlaylist(playlistId)
+    if (cached) return cached
     return null
   }
 }

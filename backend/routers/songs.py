@@ -421,27 +421,44 @@ async def diagnose_song(song_id: str, db: Session = Depends(get_db)):
     }
 
 
+import time
+
+_audio_files_cache: set = set()
+_audio_files_cache_time: float = 0.0
+
+def _get_available_audio_filenames() -> set:
+    global _audio_files_cache, _audio_files_cache_time
+    now = time.time()
+    if (now - _audio_files_cache_time > 10.0) or not _audio_files_cache:
+        audio_dir = BASE_DIR / "local_storage" / "audio"
+        if audio_dir.exists():
+            try:
+                _audio_files_cache = set(os.listdir(audio_dir))
+            except Exception:
+                _audio_files_cache = set()
+        else:
+            _audio_files_cache = set()
+        _audio_files_cache_time = now
+    return _audio_files_cache
+
+
 def _serialize(s: Song) -> dict:
     """Standardizes song data for the frontend with Smart Resolver stream links."""
     is_url = bool(s.audio_path and (s.audio_path.startswith("http://") or s.audio_path.startswith("https://")))
+    is_cached = is_url
     
-    local_p = None
-    if s.audio_path and not is_url:
-        p = Path(s.audio_path)
-        if p.is_absolute():
-            local_p = p if p.exists() else BASE_DIR / "local_storage" / "audio" / p.name
-        else:
-            local_p = (BASE_DIR / p) if (BASE_DIR / p).exists() else BASE_DIR / "local_storage" / "audio" / p.name
-    
-    if not local_p or not local_p.exists():
-        for ext in ["m4a", "mp3", "webm", "opus", "aac", "wav"]:
-            alt = BASE_DIR / "local_storage" / "audio" / f"{s.id}.{ext}"
-            if alt.exists() and alt.stat().st_size > 1024 * 50:
-                local_p = alt
-                break
+    if not is_cached:
+        avail = _get_available_audio_filenames()
+        if s.audio_path:
+            p_name = Path(s.audio_path).name
+            if p_name in avail:
+                is_cached = True
+        if not is_cached:
+            for ext in ["m4a", "mp3", "webm", "opus", "aac", "wav"]:
+                if f"{s.id}.{ext}" in avail:
+                    is_cached = True
+                    break
 
-    is_cached = is_url or bool(local_p and local_p.exists() and local_p.stat().st_size > 1024 * 50)
-    
     if is_url:
         stream_url = s.audio_path
     else:

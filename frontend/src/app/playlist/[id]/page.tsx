@@ -22,6 +22,7 @@ import { useUIStore } from "@/store/uiStore"
 import { useAuthStore } from "@/store/authStore"
 import {
   getPlaylist,
+  getCachedPlaylist,
   Playlist,
   Song,
   API_BASE,
@@ -46,6 +47,7 @@ export default function PlaylistPage({ params }: { params: Promise<{ id: string 
 
   const [playlist, setPlaylist] = useState<Playlist | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [isSaved, setIsSaved] = useState(false)
   const [showOptionsMenu, setShowOptionsMenu] = useState(false)
   const [showDeleteModal, setShowDeleteModal] = useState(false)
@@ -54,13 +56,38 @@ export default function PlaylistPage({ params }: { params: Promise<{ id: string 
   const currentUserId = user?.id || "1"
   const isOwner = playlist?.ownerId ? playlist.ownerId === currentUserId : true
 
-  useEffect(() => {
-    async function loadData() {
-      const data = await getPlaylist(playlistId)
-      setPlaylist(data)
-      setIsSaved(Boolean(data?.isSaved))
+  const loadData = async (showSpinner = false) => {
+    if (showSpinner) setLoading(true)
+    setError(null)
+
+    // 1. Instant cache hydration: render cached/seed playlist immediately
+    const cached = getCachedPlaylist(playlistId)
+    if (cached) {
+      setPlaylist(cached)
+      setIsSaved(Boolean(cached.isSaved))
       setLoading(false)
     }
+
+    // 2. Fetch fresh playlist data from backend
+    try {
+      const data = await getPlaylist(playlistId)
+      if (data) {
+        setPlaylist(data)
+        setIsSaved(Boolean(data.isSaved))
+        setError(null)
+      } else if (!cached) {
+        setError("Playlist not found")
+      }
+    } catch (err: any) {
+      if (!cached) {
+        setError(err?.message || "Failed to load playlist")
+      }
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
     loadData()
 
     const handlePlaylistUpdated = (e: any) => {
@@ -72,7 +99,7 @@ export default function PlaylistPage({ params }: { params: Promise<{ id: string 
     return () => window.removeEventListener("melofy_playlist_updated", handlePlaylistUpdated)
   }, [playlistId, currentUserId])
 
-  if (loading) {
+  if (loading && !playlist) {
     return (
       <div className="flex-1 flex items-center justify-center bg-[#121212] h-full text-white">
         <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-[#1db954]" />
@@ -80,14 +107,30 @@ export default function PlaylistPage({ params }: { params: Promise<{ id: string 
     )
   }
 
-  if (!playlist) {
+  if (error || !playlist) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center bg-[#121212] h-full text-white space-y-4">
-        <Music size={64} className="text-[#444]" />
-        <h2 className="text-2xl font-bold">Playlist not found</h2>
-        <Link href="/" className="px-6 py-2 rounded-full bg-white text-black font-bold text-sm">
-          Return Home
-        </Link>
+      <div className="flex-1 flex flex-col items-center justify-center bg-[#121212] h-full text-white space-y-4 px-6 text-center">
+        <Music size={64} className="text-[#555]" />
+        <h2 className="text-2xl font-bold">{error || "Playlist not found"}</h2>
+        <p className="text-sm text-neutral-400 max-w-md">
+          {error === "Playlist not found"
+            ? "This playlist may have been moved, removed, or is still syncing from the cloud."
+            : "The connection took longer than expected. Please retry to load your tracks."}
+        </p>
+        <div className="flex items-center gap-3 pt-2">
+          <button
+            onClick={() => loadData(true)}
+            className="px-6 py-2.5 rounded-full bg-[#1db954] text-black font-bold text-sm hover:scale-105 active:scale-95 transition cursor-pointer"
+          >
+            Try Again
+          </button>
+          <Link
+            href="/"
+            className="px-6 py-2.5 rounded-full bg-white/10 hover:bg-white/20 text-white font-semibold text-sm transition"
+          >
+            Return Home
+          </Link>
+        </div>
       </div>
     )
   }

@@ -5,7 +5,7 @@ Supports creation, listing, updating, deleting, adding/removing tracks, and reor
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional, List
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from datetime import datetime
 import uuid
 
@@ -112,6 +112,7 @@ def list_playlists(
     # 1. Owned playlists
     owned = (
         db.query(Playlist)
+        .options(joinedload(Playlist.tracks))
         .filter(Playlist.owner_id == target_user)
         .order_by(Playlist.updated_at.desc())
         .all()
@@ -127,6 +128,7 @@ def list_playlists(
     saved_ids = [sr.playlist_id for sr in saved_records]
     saved_playlists = (
         db.query(Playlist)
+        .options(joinedload(Playlist.tracks))
         .filter(Playlist.id.in_(saved_ids), Playlist.owner_id != target_user)
         .all()
     ) if saved_ids else []
@@ -177,7 +179,12 @@ def get_playlist(
     user_id: Optional[str] = Depends(resolve_user_id),
     db: Session = Depends(get_db)
 ):
-    playlist = db.query(Playlist).filter(Playlist.id == playlist_id).first()
+    playlist = (
+        db.query(Playlist)
+        .options(joinedload(Playlist.tracks).joinedload(PlaylistTrack.song))
+        .filter(Playlist.id == playlist_id)
+        .first()
+    )
     if not playlist:
         raise HTTPException(status_code=404, detail="Playlist not found")
 
