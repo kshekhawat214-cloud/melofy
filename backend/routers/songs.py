@@ -476,6 +476,39 @@ async def diagnose_song(song_id: str, db: Session = Depends(get_db)):
                         diag_steps.append({"dl_error": str(dl_err), "trace": traceback.format_exc()})
         except Exception as q_err:
             diag_steps.append({"query_error": str(q_err)})
+
+    # 3. Test client options directly to find which client bypasses Render datacenter bot check
+    client_probe = {}
+    test_clients = [
+        ["ios"],
+        ["mweb"],
+        ["tv"],
+        ["web_safari"],
+        ["web_embedded"],
+        ["android_vr"],
+        ["mweb", "tv"],
+        ["ios", "mweb"],
+    ]
+    node_path = _get_node_path()
+    for c in test_clients:
+        c_name = "+".join(c)
+        try:
+            p_opts = {
+                "format": "bestaudio/18/best",
+                "quiet": True,
+                "socket_timeout": 8,
+                "nocheckcertificate": True,
+                "extractor_args": {"youtube": {"player_client": c}},
+            }
+            if node_path:
+                p_opts["javascript_runtime"] = node_path
+            with yt_dlp.YoutubeDL(p_opts) as p_ydl:
+                p_data = await loop.run_in_executor(None, lambda: p_ydl.extract_info("https://www.youtube.com/watch?v=uc43tD6-E4U", download=False))
+                client_probe[c_name] = {"success": True, "format": p_data.get("format_id"), "url": bool(p_data and p_data.get("url"))}
+                if p_data and p_data.get("url"):
+                    break
+        except Exception as pe:
+            client_probe[c_name] = {"success": False, "error": str(pe)[:80]}
         
     files_after = [f.name for f in AUDIO_DIR.iterdir()] if AUDIO_DIR.exists() else []
     
@@ -493,6 +526,7 @@ async def diagnose_song(song_id: str, db: Session = Depends(get_db)):
         "direct_res": direct_res,
         "direct_source_test": direct_source_test,
         "diag_steps": diag_steps,
+        "client_probe": client_probe,
     }
 
 
