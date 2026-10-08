@@ -380,6 +380,27 @@ async def diagnose_song(song_id: str, db: Session = Depends(get_db)):
         f"{clean_expected} {lead_artist}",
     ]
     
+    # 1. Test direct source_url extraction if present
+    direct_source_test = {}
+    if song.source_url:
+        try:
+            ds_opts = dict(ydl_opts(song.id, prefer_fast=True))
+            ds_opts["ignoreerrors"] = False
+            with yt_dlp.YoutubeDL(ds_opts) as ds_ydl:
+                ds_data = await loop.run_in_executor(None, lambda: ds_ydl.extract_info(song.source_url, download=False))
+                direct_source_test = {
+                    "url": song.source_url,
+                    "extracted_url": bool(ds_data and ds_data.get("url")),
+                    "title": ds_data.get("title") if ds_data else None,
+                }
+        except Exception as ds_err:
+            direct_source_test = {
+                "url": song.source_url,
+                "error": str(ds_err),
+                "trace": traceback.format_exc(),
+            }
+
+    # 2. Test candidate search queries
     loop = asyncio.get_event_loop()
     for q in queries:
         try:
@@ -393,11 +414,15 @@ async def diagnose_song(song_id: str, db: Session = Depends(get_db)):
                     cand_url = cand.get("webpage_url") or f"https://www.youtube.com/watch?v={cand.get('id')}"
                     diag_steps.append({"attempting_url": cand_url, "title": cand.get("title")})
                     try:
-                        dl_opts = ydl_opts(song.id, prefer_fast=True)
+                        dl_opts = dict(ydl_opts(song.id, prefer_fast=True))
+                        dl_opts["ignoreerrors"] = False
                         with yt_dlp.YoutubeDL(dl_opts) as dl_ydl:
                             dl_data = await loop.run_in_executor(None, lambda: dl_ydl.extract_info(cand_url, download=True))
-                            diag_steps.append({"dl_success": True, "dl_format": dl_data.get("format_id")})
-                            break
+                            if dl_data:
+                                diag_steps.append({"dl_success": True, "dl_format": dl_data.get("format_id")})
+                                break
+                            else:
+                                diag_steps.append({"dl_success": False, "dl_data": None})
                     except Exception as dl_err:
                         diag_steps.append({"dl_error": str(dl_err), "trace": traceback.format_exc()})
         except Exception as q_err:
@@ -417,6 +442,7 @@ async def diagnose_song(song_id: str, db: Session = Depends(get_db)):
         "files_before": files_in_audio,
         "files_after": files_after,
         "direct_res": direct_res,
+        "direct_source_test": direct_source_test,
         "diag_steps": diag_steps,
     }
 
