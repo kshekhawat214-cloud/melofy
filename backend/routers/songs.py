@@ -2,8 +2,8 @@
 Songs Router: CRUD + Stream audio + Download endpoint.
 Serves audio files as streams directly from local_storage.
 """
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Request, Response
+from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
 from sqlalchemy.orm import Session
 from database.models import Song, get_db
 from pathlib import Path
@@ -11,6 +11,7 @@ import os
 import mimetypes
 import logging
 import traceback
+import requests
 
 logger = logging.getLogger(__name__)
 
@@ -64,14 +65,55 @@ def get_audio_mime_type(file_path: Path) -> str:
     return guessed or "audio/mp4"
 
 
+def proxy_audio_stream(stream_url: str, request_range: str = None) -> StreamingResponse:
+    """
+    Streams audio bytes directly from IP-bound or CDN sources (e.g. YouTube googlevideo)
+    to client browser with RFC 7233 byte-range support, preventing 403 Forbidden IP mismatch.
+    """
+    req_headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    }
+    if request_range:
+        req_headers["Range"] = request_range
+
+    r = requests.get(stream_url, headers=req_headers, stream=True, timeout=20)
+    
+    def iter_audio():
+        try:
+            for chunk in r.iter_content(chunk_size=64 * 1024):
+                if chunk:
+                    yield chunk
+        finally:
+            r.close()
+
+    resp_headers = {
+        **STREAM_HEADERS,
+        "Content-Type": r.headers.get("content-type") or r.headers.get("Content-Type") or "audio/webm",
+        "Cache-Control": "no-cache",
+    }
+    content_range = r.headers.get("content-range") or r.headers.get("Content-Range")
+    if content_range:
+        resp_headers["Content-Range"] = content_range
+
+    content_len = r.headers.get("content-length") or r.headers.get("Content-Length")
+    if content_len:
+        resp_headers["Content-Length"] = content_len
+
+    status_code = r.status_code if r.status_code in (200, 206) else 200
+    return StreamingResponse(
+        iter_audio(),
+        status_code=status_code,
+        headers=resp_headers,
+    )
+
+
 @router.options("/songs/{song_id}/stream")
 def options_stream_audio(song_id: str):
-    from fastapi import Response
     return Response(status_code=204, headers=STREAM_HEADERS)
 
 
 @router.api_route("/songs/{song_id}/stream", methods=["GET", "HEAD"])
-async def stream_audio(song_id: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+async def stream_audio(song_id: str, request: Request, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     """
     Streams the audio file with instant sub-second response times.
     1. If cached on disk or remote CDN, streams immediately with HTTP 206 range support.
@@ -196,7 +238,14 @@ async def stream_audio(song_id: str, background_tasks: BackgroundTasks, db: Sess
                         logger.warning(f"Background stream cache failed: {bg_err}")
 
                 background_tasks.add_task(_bg_download, track_meta, song.source_url or "")
-                return RedirectResponse(url=direct_url, status_code=307, headers=STREAM_HEADERS)
+                
+                # Public CDN (JioSaavn / Pixabay) - can be redirected directly without IP lock
+                if "saavncdn.com" in direct_url or "pixabay.com" in direct_url:
+                    return RedirectResponse(url=direct_url, status_code=307, headers=STREAM_HEADERS)
+                
+                # IP-bound stream (YouTube / GoogleVideo) - proxy bytes with Range support so browser never hits 403 Forbidden
+                req_range = request.headers.get("range")
+                return proxy_audio_stream(direct_url, req_range)
         except Exception as resolve_err:
             logger.warning(f"Direct stream resolver passed to full download: {resolve_err}")
 

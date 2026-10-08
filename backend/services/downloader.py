@@ -443,11 +443,19 @@ async def resolve_direct_stream(expected_meta: Dict[str, Any]) -> Optional[Dict[
     if source_url and "spotify.com" not in source_url and ("youtube.com" in source_url or "youtu.be" in source_url):
         try:
             ydl_opts_source = {
-                "format": "bestaudio/best",
+                "format": "ba[abr<=160]/bestaudio/best",
                 "quiet": True,
                 "noplaylist": True,
                 "nocheckcertificate": True,
-                "socket_timeout": 5,
+                "socket_timeout": 15,
+                "extractor_args": {
+                    "youtube": {
+                        "player_client": ["android", "ios", "mweb", "web"],
+                    }
+                },
+                "http_headers": {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                },
             }
             with yt_dlp.YoutubeDL(ydl_opts_source) as ydl:
                 info = await loop.run_in_executor(None, lambda: ydl.extract_info(source_url, download=False))
@@ -522,11 +530,19 @@ async def resolve_direct_stream(expected_meta: Dict[str, Any]) -> Optional[Dict[
 
     try:
         ydl_opts_yt = {
-            "format": "bestaudio/best",
+            "format": "ba[abr<=160]/bestaudio/best",
             "quiet": True,
             "noplaylist": True,
             "nocheckcertificate": True,
-            "socket_timeout": 6,
+            "socket_timeout": 15,
+            "extractor_args": {
+                "youtube": {
+                    "player_client": ["android", "ios", "mweb", "web"],
+                }
+            },
+            "http_headers": {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            },
         }
         with yt_dlp.YoutubeDL(ydl_opts_yt) as ydl:
             yt_info = await loop.run_in_executor(
@@ -610,6 +626,11 @@ def ydl_opts(track_id, prefer_fast=True):
         "ignoreerrors": True,
         "socket_timeout": 15,
         "ffmpeg_location": ffmpeg_path,
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["android", "ios", "mweb", "web"],
+            }
+        },
         "http_headers": {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
