@@ -43,38 +43,23 @@ export default function AmbientGlow() {
       lastTimeRef.current = now
 
       if (isPlaying) {
-        // Live hardware frequency analysis
+        // Live tempo & rhythm synchronized frequency analysis
         const { bassLevel, midLevel, trebleLevel, overallLevel } = audioDsp.getReactivityData()
 
-        // Track metadata BPM pulse
-        const energy = currentSong?.energy ?? 0.75
-        const tempo = currentSong?.tempo && currentSong.tempo > 60 && currentSong.tempo < 220
-          ? currentSong.tempo
-          : 120
-        const beatDurationMs = (60 / tempo) * 1000
-        const beatPhase = (now % beatDurationMs) / beatDurationMs
-        const beatPulse = Math.pow(Math.sin(beatPhase * Math.PI), 2.2) * (0.35 + energy * 0.45)
+        // Smooth musical breathing locked to track playback
+        smoothBassRef.current += (bassLevel - smoothBassRef.current) * 0.16
+        smoothMidRef.current += (midLevel - smoothMidRef.current) * 0.14
+        smoothTrebleRef.current += (trebleLevel - smoothTrebleRef.current) * 0.14
+        smoothLoudnessRef.current += (overallLevel - smoothLoudnessRef.current) * 0.15
 
-        // Effective multi-band levels
-        const effectiveBass = bassLevel > 0.03 ? Math.max(bassLevel * 1.6, beatPulse * 0.7) : beatPulse
-        const effectiveMid = midLevel > 0.03 ? Math.max(midLevel * 1.4, beatPulse * 0.5) : beatPulse * 0.5
-        const effectiveTreble = trebleLevel > 0.03 ? Math.max(trebleLevel * 1.5, beatPulse * 0.4) : beatPulse * 0.3
-        const effectiveLoudness = overallLevel > 0.03 ? Math.max(overallLevel * 1.3, beatPulse * 0.8) : beatPulse * 0.8
+        const kickMagnitude = Math.max(0, smoothBassRef.current - 0.2) * 0.7
+        setBassKick(Math.min(0.6, kickMagnitude))
 
-        // Gentle, soothing breathing (no harsh strobes or rapid hue shifts)
-        smoothBassRef.current += (effectiveBass - smoothBassRef.current) * 0.08
-        smoothMidRef.current += (effectiveMid - smoothMidRef.current) * 0.08
-        smoothTrebleRef.current += (effectiveTreble - smoothTrebleRef.current) * 0.08
-        smoothLoudnessRef.current += (effectiveLoudness - smoothLoudnessRef.current) * 0.08
+        // Soothing harmonic hue drift
+        setVibeHueShift(Math.sin(now * 0.0003) * 8)
 
-        const kickMagnitude = Math.max(0, smoothBassRef.current - 0.2) * 0.6
-        setBassKick(Math.min(0.5, kickMagnitude))
-
-        // Very slow, soothing drift
-        setVibeHueShift(Math.sin(now * 0.0003) * 10)
-
-        const targetScale = 1.0 + Math.min(0.12, smoothBassRef.current * 0.15)
-        const targetOpacity = 0.45 + Math.min(0.2, smoothLoudnessRef.current * 0.2)
+        const targetScale = 1.0 + Math.min(0.14, smoothBassRef.current * 0.18)
+        const targetOpacity = 0.45 + Math.min(0.25, smoothLoudnessRef.current * 0.25)
 
         setEnergyScale(targetScale)
         setGlowOpacity(targetOpacity)

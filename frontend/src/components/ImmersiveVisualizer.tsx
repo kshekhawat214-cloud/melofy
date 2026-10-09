@@ -64,31 +64,30 @@ export default function ImmersiveVisualizer() {
 
     const W = canvas.width
     const H = canvas.height
-    const t = timeRef.current
     const minDim = Math.min(W, H)
+
+    const audioEl = typeof document !== "undefined" ? document.querySelector("audio") : null
+    const isAudioActive = Boolean(audioEl && !audioEl.paused)
+    const audioTime = audioEl ? audioEl.currentTime : 0
+    // Lock visualizer evolution clock directly to real-time audio playback
+    const t = isAudioActive ? audioTime : timeRef.current
 
     // ─── 1. Asymmetrical Audio Dynamics ──────────────────────────────
     const raw = audioDsp.getReactivityData()
     const a = audioRef.current
 
     // Snappy attack on kicks/vocals, luxurious velvet decay
-    const attack = 0.28
-    const decay = 0.10
+    const attack = 0.32
+    const decay = 0.12
     a.bass += (raw.bassLevel - a.bass) * (raw.bassLevel > a.bass ? attack : decay)
     a.mid += (raw.midLevel - a.mid) * (raw.midLevel > a.mid ? attack : decay)
     a.treble += (raw.trebleLevel - a.treble) * (raw.trebleLevel > a.treble ? attack : decay)
     a.overall += (raw.overallLevel - a.overall) * (raw.overallLevel > a.overall ? attack : decay)
 
-    // Musical breathing if paused or in quiet passage
-    const tempo = currentSong?.tempo && currentSong.tempo > 60 && currentSong.tempo < 200 ? currentSong.tempo : 118
-    const beatPeriodMs = (60 / tempo) * 1000
-    const beatPhase = (timestamp % beatPeriodMs) / beatPeriodMs
-    const idlePulse = Math.pow(Math.sin(beatPhase * Math.PI), 2) * 0.18
-
-    const curBass = isPlaying ? Math.max(a.bass, idlePulse * 0.35) : idlePulse * 0.25
-    const curMid = isPlaying ? Math.max(a.mid, idlePulse * 0.30) : idlePulse * 0.20
-    const curTreble = isPlaying ? Math.max(a.treble, idlePulse * 0.25) : idlePulse * 0.15
-    const curOverall = isPlaying ? Math.max(a.overall, idlePulse * 0.32) : idlePulse * 0.22
+    const curBass = isPlaying ? Math.max(a.bass, 0.14) : 0.10
+    const curMid = isPlaying ? Math.max(a.mid, 0.12) : 0.08
+    const curTreble = isPlaying ? Math.max(a.treble, 0.10) : 0.06
+    const curOverall = isPlaying ? Math.max(a.overall, 0.14) : 0.08
 
     // ─── 2. Deep Velvet Foundation (Zero Dark Void) ───────────────────
     ctx.globalCompositeOperation = "source-over"
@@ -117,10 +116,10 @@ export default function ImmersiveVisualizer() {
 
     // NODE 1: Sub-Bass & Kick Core (Lower-Left to Center Groove)
     // Radius swells dramatically on kicks and 808s!
-    const n1X = W * (0.34 + Math.sin(t * 0.42) * 0.16)
-    const n1Y = H * (0.64 + Math.cos(t * 0.36) * 0.14)
-    const n1R = minDim * (0.58 + curBass * 0.52)
-    const n1Alpha = 0.42 + curBass * 0.38
+    const n1X = W * (0.34 + Math.sin(t * 0.38) * 0.15)
+    const n1Y = H * (0.64 + Math.cos(t * 0.32) * 0.13)
+    const n1R = minDim * (0.52 + curBass * 0.60)
+    const n1Alpha = 0.38 + curBass * 0.44
     const grad1 = ctx.createRadialGradient(n1X, n1Y, 0, n1X, n1Y, n1R)
     grad1.addColorStop(0, hexToRgba(vibe.primary, n1Alpha))
     grad1.addColorStop(0.35, hexToRgba(vibe.primary, n1Alpha * 0.65))
@@ -131,10 +130,10 @@ export default function ImmersiveVisualizer() {
 
     // NODE 2: Vocal Presence & Melodic Energy (Upper-Right to Center)
     // Flares with radiant illumination whenever the singer vocalizes!
-    const n2X = W * (0.66 + Math.cos(t * 0.48) * 0.15)
-    const n2Y = H * (0.36 + Math.sin(t * 0.38) * 0.13)
-    const n2R = minDim * (0.54 + curMid * 0.46)
-    const n2Alpha = 0.38 + curMid * 0.42
+    const n2X = W * (0.66 + Math.cos(t * 0.44) * 0.15)
+    const n2Y = H * (0.36 + Math.sin(t * 0.36) * 0.13)
+    const n2R = minDim * (0.48 + curMid * 0.54)
+    const n2Alpha = 0.36 + curMid * 0.46
     const grad2 = ctx.createRadialGradient(n2X, n2Y, 0, n2X, n2Y, n2R)
     grad2.addColorStop(0, hexToRgba(vibe.secondary, n2Alpha))
     grad2.addColorStop(0.40, hexToRgba(vibe.secondary, n2Alpha * 0.60))
@@ -145,10 +144,10 @@ export default function ImmersiveVisualizer() {
 
     // NODE 3: Harmonic Drift & Ambient Horizon (Top-Left / Center Drift)
     // Connects upper atmosphere with overall musical energy
-    const n3X = W * (0.44 + Math.sin(t * 0.32 + 1.8) * 0.18)
-    const n3Y = H * (0.28 + Math.cos(t * 0.28 + 1.2) * 0.14)
-    const n3R = minDim * (0.56 + curOverall * 0.36)
-    const n3Alpha = 0.32 + curOverall * 0.30
+    const n3X = W * (0.44 + Math.sin(t * 0.30 + 1.8) * 0.16)
+    const n3Y = H * (0.28 + Math.cos(t * 0.26 + 1.2) * 0.14)
+    const n3R = minDim * (0.50 + curOverall * 0.44)
+    const n3Alpha = 0.30 + curOverall * 0.36
     const grad3 = ctx.createRadialGradient(n3X, n3Y, 0, n3X, n3Y, n3R)
     grad3.addColorStop(0, hexToRgba(vibe.accent, n3Alpha))
     grad3.addColorStop(0.45, hexToRgba(vibe.accent, n3Alpha * 0.55))
@@ -159,10 +158,10 @@ export default function ImmersiveVisualizer() {
 
     // NODE 4: High Frequencies & Sparkling Instrument Atmosphere (Bottom-Right)
     // Shimmers softly with hi-hats, acoustic guitar strings, and synths
-    const n4X = W * (0.74 + Math.sin(t * 0.54 + 3.1) * 0.14)
-    const n4Y = H * (0.76 + Math.cos(t * 0.44 + 2.5) * 0.12)
-    const n4R = minDim * (0.48 + curTreble * 0.38)
-    const n4Alpha = 0.28 + curTreble * 0.34
+    const n4X = W * (0.74 + Math.sin(t * 0.50 + 3.1) * 0.14)
+    const n4Y = H * (0.76 + Math.cos(t * 0.40 + 2.5) * 0.12)
+    const n4R = minDim * (0.44 + curTreble * 0.48)
+    const n4Alpha = 0.26 + curTreble * 0.40
     const grad4 = ctx.createRadialGradient(n4X, n4Y, 0, n4X, n4Y, n4R)
     grad4.addColorStop(0, hexToRgba(vibe.neonHighlight, n4Alpha))
     grad4.addColorStop(0.40, hexToRgba(vibe.neonHighlight, n4Alpha * 0.50))
@@ -229,7 +228,7 @@ export default function ImmersiveVisualizer() {
     ctx.fillRect(W - edgeSideW, 0, edgeSideW, H)
 
     animRef.current = requestAnimationFrame(render)
-  }, [vibe, isPlaying, currentSong?.tempo])
+  }, [vibe, isPlaying, currentSong?.tempo, currentSong?.energy])
 
   // ─── Canvas Resize Handler (Retina Sharpened) ───────────────────
   useEffect(() => {

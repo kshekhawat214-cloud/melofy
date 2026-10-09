@@ -231,25 +231,52 @@ export default function MotionLyrics() {
     let animId: number
     const tick = () => {
       const audio = document.querySelector("audio")
+      const audioTime = audio ? audio.currentTime : 0
       if (audio) {
-        setCurrentTime(audio.currentTime)
+        setCurrentTime(audioTime)
       }
+
+      // Detect real-time vocal state from lyrics for true singer-synced illumination
+      let isSinging = false
+      let vocalWeight = 0.7
+      if (syncedLines.length > 0) {
+        for (let i = 0; i < syncedLines.length; i++) {
+          const l = syncedLines[i]
+          if (audioTime >= l.time && audioTime <= (l.singingEndTime || l.endTime)) {
+            isSinging = true
+            const curW = l.words.find((w) => audioTime >= w.startTime && audioTime <= w.endTime)
+            vocalWeight = curW ? 1.0 : 0.8
+            break
+          }
+        }
+      }
+
+      // Transmit live acoustic context to DSP engine
+      audioDsp.setTrackContext({
+        tempo: currentSong?.tempo,
+        energy: currentSong?.energy,
+        genre: currentSong?.genre,
+        mood: currentSong?.mood,
+        isVocalsActive: isSinging,
+        vocalWeight,
+        currentTime: audioTime,
+      })
 
       // Update Center Cover Pulse & Halo Bloom directly on DOM (60 FPS, 0 React re-renders)
       const raw = audioDsp.getReactivityData()
-      smoothBassRef.current += (raw.bassLevel - smoothBassRef.current) * 0.24
-      smoothMidRef.current += (raw.midLevel - smoothMidRef.current) * 0.20
-      smoothTrebleRef.current += (raw.trebleLevel - smoothTrebleRef.current) * 0.22
+      smoothBassRef.current += (raw.bassLevel - smoothBassRef.current) * 0.28
+      smoothMidRef.current += (raw.midLevel - smoothMidRef.current) * 0.22
+      smoothTrebleRef.current += (raw.trebleLevel - smoothTrebleRef.current) * 0.24
 
       if (coverContainerRef.current) {
-        const scale = 1 + smoothBassRef.current * 0.038
-        coverContainerRef.current.style.transform = `scale(${scale})`
+        const kickScale = 1 + smoothBassRef.current * 0.046
+        coverContainerRef.current.style.transform = `scale(${kickScale})`
       }
       if (haloRef.current) {
-        const haloScale = 1 + smoothBassRef.current * 0.12
-        const haloOpacity = 0.24 + smoothBassRef.current * 0.28
+        const haloScale = 1 + smoothBassRef.current * 0.16
+        const haloOpacity = 0.28 + smoothBassRef.current * 0.32 + (isSinging ? 0.18 : 0)
         haloRef.current.style.transform = `scale(${haloScale})`
-        haloRef.current.style.opacity = `${haloOpacity}`
+        haloRef.current.style.opacity = `${Math.min(0.95, haloOpacity)}`
       }
 
       // Render 360° Circular Audio Waveform Halo around the Center Cover
@@ -367,7 +394,7 @@ export default function MotionLyrics() {
     }
     animId = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(animId)
-  }, [isImmersiveVisualizerOpen, vibe])
+  }, [isImmersiveVisualizerOpen, vibe, syncedLines, currentSong?.tempo, currentSong?.energy, currentSong?.genre, currentSong?.mood])
 
   // ─── Auto-hide controls after inactivity ─────────────────────
   const resetControlsTimeout = useCallback(() => {

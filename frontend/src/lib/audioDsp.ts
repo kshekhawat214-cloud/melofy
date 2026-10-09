@@ -6,10 +6,21 @@
 
 import { SoundstageMode } from "@/store/playerStore"
 
+export interface AudioTrackContext {
+  tempo?: number          // Song BPM (e.g. 75, 120, 128)
+  energy?: number         // 0.0 .. 1.0
+  genre?: string          // Track genre
+  mood?: string           // Track mood
+  isVocalsActive?: boolean // True when lyrics indicate active singing
+  vocalWeight?: number    // 0.0 .. 1.0 (prominence of the sung word)
+  currentTime?: number    // Precise audio time
+}
+
 class AudioDspEngine {
   private audioCtx: AudioContext | null = null
   private sourceNode: MediaElementAudioSourceNode | null = null
   private connectedElement: HTMLAudioElement | null = null
+  private trackContext: AudioTrackContext = {}
 
   // Equalizer & Acoustic Filters
   private inputGain: GainNode | null = null
@@ -32,6 +43,13 @@ class AudioDspEngine {
 
   private currentMode: SoundstageMode = "pure"
   private isInitialized = false
+
+  /**
+   * Updates current track acoustic metadata (BPM tempo, energy, vocals presence).
+   */
+  public setTrackContext(context: Partial<AudioTrackContext>): void {
+    this.trackContext = { ...this.trackContext, ...context }
+  }
 
   /**
    * Initializes the Web Audio graph and attaches it to the given HTML5 Audio element.
@@ -205,32 +223,57 @@ class AudioDspEngine {
     if (typeof window === "undefined") {
       return { bassLevel: 0, midLevel: 0, trebleLevel: 0, overallLevel: 0 }
     }
-    const audio = document.querySelector("audio")
+    const audio = this.connectedElement || document.querySelector("audio")
     if (!audio || audio.paused) {
       return { bassLevel: 0, midLevel: 0, trebleLevel: 0, overallLevel: 0 }
     }
+
     const t = audio.currentTime
-    // Musical groove pulse (118 BPM base rhythm)
-    const bpm = 118
-    const beatPeriod = 60 / bpm // ~0.508s
-    const beatPhase = (t % beatPeriod) / beatPeriod
+    const rawTempo = this.trackContext.tempo
+    const tempo = rawTempo && rawTempo >= 50 && rawTempo <= 220 ? rawTempo : 120
+    const energy = Math.max(0.2, Math.min(1.0, this.trackContext.energy ?? 0.75))
 
-    // Kick drum: punchy exponential attack on every beat
-    const kick = Math.exp(-beatPhase * 4.6)
-    const bassLevel = Math.min(1.0, 0.22 + kick * 0.78)
+    // True Musical Rhythm Calculation
+    const beatPeriod = 60 / tempo
+    const beatIndex = t / beatPeriod
+    const beatPhase = beatIndex % 1.0 // 0..1 phase within the beat
+    const beatInBar = Math.floor(beatIndex) % 4 // 0: downbeat (one), 1: two, 2: three, 3: four
 
-    // Snare / Vocal cadence: accented on 2nd and 4th beats of the bar
-    const barPhase = (t % (beatPeriod * 4)) / (beatPeriod * 4)
-    const isSnare = (barPhase >= 0.25 && barPhase < 0.42) || (barPhase >= 0.75 && barPhase < 0.92)
-    const snareEnv = isSnare ? Math.exp(-((t % (beatPeriod * 2)) % beatPeriod) * 4.8) : 0
-    const midLevel = Math.min(1.0, 0.20 + snareEnv * 0.70 + Math.abs(Math.sin(t * 1.6)) * 0.15)
+    // 1. KICK & SUB-BASS (Downbeats & Grooves)
+    // Downbeat (beat 0) gets the highest punch; beat 2 gets secondary punch; 1 & 3 are backbeats
+    const isDownbeat = beatInBar === 0
+    const downbeatMultiplier = isDownbeat ? 1.0 : beatInBar === 2 ? 0.78 : 0.48
+    // Snappy exponential punch (instant attack, clean musical decay)
+    const kickAttack = Math.exp(-beatPhase * 6.0)
+    const kick = kickAttack * downbeatMultiplier
+    const bassLevel = Math.min(1.0, 0.18 + kick * 0.82 * (0.6 + energy * 0.4))
 
-    // Hi-hats: rhythmic 8th note shimmer
-    const hatPhase = (t % (beatPeriod / 2)) / (beatPeriod / 2)
-    const hat = Math.exp(-hatPhase * 5.5)
-    const trebleLevel = Math.min(1.0, 0.16 + hat * 0.60)
+    // 2. MIDS & VOCAL PRESENCE (Singing vs Snares)
+    const isBackbeat = beatInBar === 1 || beatInBar === 3
+    const snare = isBackbeat ? Math.exp(-beatPhase * 4.8) : 0
 
-    const overallLevel = Math.min(1.0, bassLevel * 0.45 + midLevel * 0.35 + trebleLevel * 0.20)
+    let midLevel: number
+    if (this.trackContext.isVocalsActive) {
+      // Singer is vocalizing: radiant bloom and expressive vocal amplitude
+      const vocalWeight = this.trackContext.vocalWeight ?? 0.7
+      const vocalPulse = 0.55 + vocalWeight * 0.40 + Math.abs(Math.sin(t * 3.14)) * 0.10
+      midLevel = Math.min(1.0, vocalPulse + snare * 0.25)
+    } else {
+      // Instrumental break: snare cadence and melodic harmonic swell
+      const barProgress = (beatIndex / 4) % 1.0
+      const harmonyFlow = Math.abs(Math.sin(barProgress * Math.PI * 2)) * 0.25
+      midLevel = Math.min(1.0, 0.18 + snare * 0.65 + harmonyFlow)
+    }
+
+    // 3. TREBLE & AIR (Hi-hats, Acoustic Strings & Synths)
+    // 8th-note hi-hat pulse on the sub-beats
+    const hatPhase = (beatIndex * 2) % 1.0
+    const hat = Math.exp(-hatPhase * 5.8)
+    // 16th-note rhythmic micro-shimmer
+    const shimmer = Math.exp(-((beatIndex * 4) % 1.0) * 7.0) * 0.35
+    const trebleLevel = Math.min(1.0, 0.14 + (hat + shimmer) * 0.66 * (0.5 + energy * 0.5))
+
+    const overallLevel = Math.min(1.0, bassLevel * 0.42 + midLevel * 0.38 + trebleLevel * 0.20)
     return { bassLevel, midLevel, trebleLevel, overallLevel }
   }
 
@@ -267,28 +310,51 @@ class AudioDspEngine {
       } catch {}
     }
 
-    // High-resolution synthesized musical spectrum fallback (64 dynamic bins)
+    // High-resolution synthesized musical spectrum (64 dynamic bins)
     const binCount = 64
     const result = new Float32Array(binCount)
     if (typeof window === "undefined") return result
-    const audio = document.querySelector("audio")
+    const audio = this.connectedElement || document.querySelector("audio")
     if (!audio || audio.paused) return result
 
     const t = audio.currentTime
-    const bpm = 118
-    const beatPeriod = 60 / bpm
-    const beatPhase = (t % beatPeriod) / beatPeriod
-    const kick = Math.exp(-beatPhase * 4.5)
+    const rawTempo = this.trackContext.tempo
+    const tempo = rawTempo && rawTempo >= 50 && rawTempo <= 220 ? rawTempo : 120
+    const energy = Math.max(0.2, Math.min(1.0, this.trackContext.energy ?? 0.75))
+
+    const beatPeriod = 60 / tempo
+    const beatIndex = t / beatPeriod
+    const beatPhase = beatIndex % 1.0
+    const beatInBar = Math.floor(beatIndex) % 4
+    const isDownbeat = beatInBar === 0
+    const downbeatMult = isDownbeat ? 1.0 : beatInBar === 2 ? 0.78 : 0.50
+    const kick = Math.exp(-beatPhase * 6.0) * downbeatMult
+    const isBackbeat = beatInBar === 1 || beatInBar === 3
+    const snare = isBackbeat ? Math.exp(-beatPhase * 4.8) : 0
+    const hatPhase = (beatIndex * 2) % 1.0
+    const hat = Math.exp(-hatPhase * 5.8)
+
+    const isVocals = this.trackContext.isVocalsActive
+    const vocalWeight = this.trackContext.vocalWeight ?? 0.7
 
     for (let i = 0; i < binCount; i++) {
       const frac = i / binCount
-      // Bass bins (0 - 15)
-      const bassVal = Math.max(0, 1 - frac * 3.5) * (0.25 + kick * 0.75)
-      // Mid / Vocal bins (16 - 42)
-      const midVal = Math.exp(-Math.pow((frac - 0.38) * 3.8, 2)) * (0.20 + Math.abs(Math.sin(t * 3.2 + i * 0.18)) * 0.65)
-      // Treble / Highs bins (43 - 63)
-      const trebleVal = Math.exp(-Math.pow((frac - 0.72) * 4.5, 2)) * (0.15 + Math.abs(Math.cos(t * 6.5 + i * 0.25)) * 0.55)
-      result[i] = Math.min(1.0, bassVal + midVal + trebleVal)
+      // Bass bins (0 - 15: Sub-bass & Kicks)
+      const bassCurve = Math.max(0, 1 - frac * 3.4) * (0.22 + kick * 0.78 * (0.6 + energy * 0.4))
+
+      // Mid / Vocal bins (16 - 40: 250Hz - 2.8kHz Formant Curve)
+      const midCurve = Math.exp(-Math.pow((frac - 0.38) * 4.0, 2)) * (
+        isVocals
+          ? (0.45 + vocalWeight * 0.45 + Math.abs(Math.sin(t * 3.14 + i * 0.2)) * 0.15)
+          : (0.18 + snare * 0.65 + Math.abs(Math.sin(t * 2.0 + i * 0.15)) * 0.25)
+      )
+
+      // Treble / Highs bins (41 - 63: 3kHz - 16kHz Shimmer & Air)
+      const trebleCurve = Math.exp(-Math.pow((frac - 0.75) * 4.2, 2)) * (
+        0.14 + hat * 0.60 * (0.5 + energy * 0.5) + Math.abs(Math.cos(t * 6.0 + i * 0.3)) * 0.22
+      )
+
+      result[i] = Math.min(1.0, bassCurve + midCurve + trebleCurve)
     }
     return result
   }
