@@ -4,15 +4,6 @@ import { usePlayerStore } from "@/store/playerStore"
 import { getSongRgbVibe, RgbVibe, hexToRgba } from "@/lib/colors"
 import { audioDsp } from "@/lib/audioDsp"
 
-interface Shockwave {
-  x: number
-  y: number
-  radius: number
-  maxRadius: number
-  opacity: number
-  color: string
-}
-
 export default function ImmersiveVisualizer() {
   const currentSong = usePlayerStore((s) => s.currentSong)
   const isPlaying = usePlayerStore((s) => s.isPlaying)
@@ -33,7 +24,7 @@ export default function ImmersiveVisualizer() {
     )
   }, [currentSong?.id, currentSong?.title, currentSong?.artist, currentSong?.genre, currentSong?.energy])
 
-  // Asymmetrical audio envelope tracking (fast attack, smooth musical decay)
+  // Asymmetrical audio envelope tracking (fast attack, silky smooth decay)
   const audioRef = useRef({
     bass: 0,
     mid: 0,
@@ -41,12 +32,26 @@ export default function ImmersiveVisualizer() {
     overall: 0,
   })
 
-  // Beat transient tracking for kick shockwaves
-  const prevBassRef = useRef(0)
-  const lastKickTimeRef = useRef(0)
-  const shockwavesRef = useRef<Shockwave[]>([])
+  // Soft floating stardust motes (out-of-focus bokeh shimmer for treble air)
+  const stardustRef = useRef<
+    Array<{ x: number; y: number; r: number; speedY: number; seed: number }>
+  >([])
 
-  // ─── Render Loop: Concert Stage Light Show Engine ─────────────────
+  useEffect(() => {
+    const pts = []
+    for (let i = 0; i < 14; i++) {
+      pts.push({
+        x: Math.random(),
+        y: Math.random(),
+        r: 18 + Math.random() * 32,
+        speedY: 0.0002 + Math.random() * 0.0004,
+        seed: Math.random() * 100,
+      })
+    }
+    stardustRef.current = pts
+  }, [])
+
+  // ─── Render Loop: Apple Music Liquid Aurora Mesh Engine ───────────
   const render = useCallback((timestamp: number) => {
     const canvas = canvasRef.current
     if (!canvas) return
@@ -55,25 +60,26 @@ export default function ImmersiveVisualizer() {
 
     const dt = prevFrameTimeRef.current ? Math.min(2.5, (timestamp - prevFrameTimeRef.current) / 16.67) : 1
     prevFrameTimeRef.current = timestamp
-    timeRef.current += 0.016 * dt
+    timeRef.current += 0.012 * dt
 
     const W = canvas.width
     const H = canvas.height
     const t = timeRef.current
+    const minDim = Math.min(W, H)
 
-    // ─── 1. Asymmetrical Audio Dynamics (Kicks, Vocals, Instruments) ───
+    // ─── 1. Asymmetrical Audio Dynamics ──────────────────────────────
     const raw = audioDsp.getReactivityData()
     const a = audioRef.current
 
-    // Snappy attack on transients, smooth velvet decay
-    const attack = 0.32
-    const decay = 0.12
+    // Snappy attack on kicks/vocals, luxurious velvet decay
+    const attack = 0.28
+    const decay = 0.10
     a.bass += (raw.bassLevel - a.bass) * (raw.bassLevel > a.bass ? attack : decay)
     a.mid += (raw.midLevel - a.mid) * (raw.midLevel > a.mid ? attack : decay)
     a.treble += (raw.trebleLevel - a.treble) * (raw.trebleLevel > a.treble ? attack : decay)
     a.overall += (raw.overallLevel - a.overall) * (raw.overallLevel > a.overall ? attack : decay)
 
-    // Musical idle breathing if paused or in low-energy section
+    // Musical breathing if paused or in quiet passage
     const tempo = currentSong?.tempo && currentSong.tempo > 60 && currentSong.tempo < 200 ? currentSong.tempo : 118
     const beatPeriodMs = (60 / tempo) * 1000
     const beatPhase = (timestamp % beatPeriodMs) / beatPeriodMs
@@ -84,287 +90,185 @@ export default function ImmersiveVisualizer() {
     const curTreble = isPlaying ? Math.max(a.treble, idlePulse * 0.25) : idlePulse * 0.15
     const curOverall = isPlaying ? Math.max(a.overall, idlePulse * 0.32) : idlePulse * 0.22
 
-    // ─── 2. Kick Drum Shockwave Spawning ──────────────────────────────
-    const bassDelta = raw.bassLevel - prevBassRef.current
-    prevBassRef.current = raw.bassLevel
-    const timeSinceLastKick = timestamp - lastKickTimeRef.current
-
-    if (isPlaying && bassDelta > 0.16 && timeSinceLastKick > 220) {
-      lastKickTimeRef.current = timestamp
-      if (shockwavesRef.current.length < 5) {
-        shockwavesRef.current.push({
-          x: W * 0.5,
-          y: H * 0.40,
-          radius: 24,
-          maxRadius: Math.max(W, H) * 0.85,
-          opacity: 0.85,
-          color: vibe.bassShockwaveColor,
-        })
-      }
-    }
-
-    // ─── 3. Full-Bleed Concert Stage Atmosphere (Zero "Dark Space") ────
+    // ─── 2. Deep Velvet Foundation (Zero Dark Void) ───────────────────
     ctx.globalCompositeOperation = "source-over"
     
-    // Rich deep-stage foundation with velvet color wash
+    // Rich midnight indigo/violet base
     const baseGrad = ctx.createLinearGradient(0, 0, 0, H)
-    baseGrad.addColorStop(0, "#080718")
-    baseGrad.addColorStop(0.35, "#0e0926")
-    baseGrad.addColorStop(0.70, "#13092b")
-    baseGrad.addColorStop(1, "#070614")
+    baseGrad.addColorStop(0, "#070614")
+    baseGrad.addColorStop(0.4, "#0c0924")
+    baseGrad.addColorStop(0.7, "#12092c")
+    baseGrad.addColorStop(1, "#070514")
     ctx.fillStyle = baseGrad
     ctx.fillRect(0, 0, W, H)
 
-    // Full-screen atmospheric color glow that breathes with track energy
-    const atmosGrad = ctx.createRadialGradient(W * 0.5, H * 0.42, 0, W * 0.5, H * 0.5, Math.max(W, H) * 0.75)
-    atmosGrad.addColorStop(0, hexToRgba(vibe.primary, 0.22 + curOverall * 0.26))
-    atmosGrad.addColorStop(0.45, hexToRgba(vibe.secondary, 0.14 + curMid * 0.18))
-    atmosGrad.addColorStop(0.85, hexToRgba(vibe.accent, 0.06 + curBass * 0.12))
-    atmosGrad.addColorStop(1, "transparent")
-    ctx.fillStyle = atmosGrad
+    // Warm atmospheric wash across the whole viewport that breathes with music
+    const roomWash = ctx.createRadialGradient(W * 0.5, H * 0.45, 0, W * 0.5, H * 0.5, Math.max(W, H) * 0.8)
+    roomWash.addColorStop(0, hexToRgba(vibe.primary, 0.24 + curOverall * 0.26))
+    roomWash.addColorStop(0.5, hexToRgba(vibe.secondary, 0.16 + curMid * 0.20))
+    roomWash.addColorStop(0.85, hexToRgba(vibe.accent, 0.08 + curBass * 0.14))
+    roomWash.addColorStop(1, "transparent")
+    ctx.fillStyle = roomWash
     ctx.fillRect(0, 0, W, H)
 
-    // ─── 4. Volumetric Concert Stage Moving Beams (Concert Moving Heads) ─
-    // 6 aerial moving spotlights sweeping across the stage
+    // ─── 3. Apple Music-Style Morphing Liquid Aurora Nodes ────────────
+    // 4 organic, ultra-smooth fluid nodes overlapping seamlessly with additive blending
     ctx.globalCompositeOperation = "screen"
 
-    const beamCount = 6
-    const beamOrigins = [0.10, 0.26, 0.42, 0.58, 0.74, 0.90]
-    
-    for (let i = 0; i < beamCount; i++) {
-      const origX = W * beamOrigins[i]
-      const origY = -15
+    // NODE 1: Sub-Bass & Kick Core (Lower-Left to Center Groove)
+    // Radius swells dramatically on kicks and 808s!
+    const n1X = W * (0.34 + Math.sin(t * 0.42) * 0.16)
+    const n1Y = H * (0.64 + Math.cos(t * 0.36) * 0.14)
+    const n1R = minDim * (0.58 + curBass * 0.52)
+    const n1Alpha = 0.42 + curBass * 0.38
+    const grad1 = ctx.createRadialGradient(n1X, n1Y, 0, n1X, n1Y, n1R)
+    grad1.addColorStop(0, hexToRgba(vibe.primary, n1Alpha))
+    grad1.addColorStop(0.35, hexToRgba(vibe.primary, n1Alpha * 0.65))
+    grad1.addColorStop(0.70, hexToRgba(vibe.primary, n1Alpha * 0.18))
+    grad1.addColorStop(1, "transparent")
+    ctx.fillStyle = grad1
+    ctx.fillRect(0, 0, W, H)
 
-      // Harmonic pendulum sweep choreographed across the stage
-      const sweepSpeed = 0.55 + (i % 2) * 0.2
-      const phaseOffset = i * 1.15
-      let sweepAngle = (Math.PI / 2) + Math.sin(t * sweepSpeed + phaseOffset) * 0.36
+    // NODE 2: Vocal Presence & Melodic Energy (Upper-Right to Center)
+    // Flares with radiant illumination whenever the singer vocalizes!
+    const n2X = W * (0.66 + Math.cos(t * 0.48) * 0.15)
+    const n2Y = H * (0.36 + Math.sin(t * 0.38) * 0.13)
+    const n2R = minDim * (0.54 + curMid * 0.46)
+    const n2Alpha = 0.38 + curMid * 0.42
+    const grad2 = ctx.createRadialGradient(n2X, n2Y, 0, n2X, n2Y, n2R)
+    grad2.addColorStop(0, hexToRgba(vibe.secondary, n2Alpha))
+    grad2.addColorStop(0.40, hexToRgba(vibe.secondary, n2Alpha * 0.60))
+    grad2.addColorStop(0.75, hexToRgba(vibe.secondary, n2Alpha * 0.16))
+    grad2.addColorStop(1, "transparent")
+    ctx.fillStyle = grad2
+    ctx.fillRect(0, 0, W, H)
 
-      // Vocals: Center beams (i=2, i=3) tilt inwards and focus on center stage
-      if (i === 2) sweepAngle += 0.18 * curMid
-      if (i === 3) sweepAngle -= 0.18 * curMid
+    // NODE 3: Harmonic Drift & Ambient Horizon (Top-Left / Center Drift)
+    // Connects upper atmosphere with overall musical energy
+    const n3X = W * (0.44 + Math.sin(t * 0.32 + 1.8) * 0.18)
+    const n3Y = H * (0.28 + Math.cos(t * 0.28 + 1.2) * 0.14)
+    const n3R = minDim * (0.56 + curOverall * 0.36)
+    const n3Alpha = 0.32 + curOverall * 0.30
+    const grad3 = ctx.createRadialGradient(n3X, n3Y, 0, n3X, n3Y, n3R)
+    grad3.addColorStop(0, hexToRgba(vibe.accent, n3Alpha))
+    grad3.addColorStop(0.45, hexToRgba(vibe.accent, n3Alpha * 0.55))
+    grad3.addColorStop(0.80, hexToRgba(vibe.accent, n3Alpha * 0.14))
+    grad3.addColorStop(1, "transparent")
+    ctx.fillStyle = grad3
+    ctx.fillRect(0, 0, W, H)
 
-      // Length and beam width
-      const beamLen = H * 1.35
-      const endX = origX + Math.cos(sweepAngle) * beamLen
-      const endY = origY + Math.sin(sweepAngle) * beamLen
+    // NODE 4: High Frequencies & Sparkling Instrument Atmosphere (Bottom-Right)
+    // Shimmers softly with hi-hats, acoustic guitar strings, and synths
+    const n4X = W * (0.74 + Math.sin(t * 0.54 + 3.1) * 0.14)
+    const n4Y = H * (0.76 + Math.cos(t * 0.44 + 2.5) * 0.12)
+    const n4R = minDim * (0.48 + curTreble * 0.38)
+    const n4Alpha = 0.28 + curTreble * 0.34
+    const grad4 = ctx.createRadialGradient(n4X, n4Y, 0, n4X, n4Y, n4R)
+    grad4.addColorStop(0, hexToRgba(vibe.neonHighlight, n4Alpha))
+    grad4.addColorStop(0.40, hexToRgba(vibe.neonHighlight, n4Alpha * 0.50))
+    grad4.addColorStop(0.75, hexToRgba(vibe.neonHighlight, n4Alpha * 0.12))
+    grad4.addColorStop(1, "transparent")
+    ctx.fillStyle = grad4
+    ctx.fillRect(0, 0, W, H)
 
-      // Width expands on kicks and bass drops
-      const startWidth = 10 + curTreble * 8
-      const endWidth = 100 + curBass * 110 + curMid * 40
+    // ─── 4. Fluid Liquid Wave Contours (Soft Ambient Depth) ───────────
+    // Undulating organic liquid waves that sweep gently behind the scene
+    const wavePoints = 24
+    const waveStepX = W / (wavePoints - 1)
 
-      // Normal perpendicular to beam direction
-      const perpAngle = sweepAngle + Math.PI / 2
-      const cosPerp = Math.cos(perpAngle)
-      const sinPerp = Math.sin(perpAngle)
-
-      const p1x = origX - cosPerp * (startWidth * 0.5)
-      const p1y = origY - sinPerp * (startWidth * 0.5)
-      const p2x = origX + cosPerp * (startWidth * 0.5)
-      const p2y = origY + sinPerp * (startWidth * 0.5)
-      const p3x = endX + cosPerp * (endWidth * 0.5)
-      const p3y = endY + sinPerp * (endWidth * 0.5)
-      const p4x = endX - cosPerp * (endWidth * 0.5)
-      const p4y = endY - sinPerp * (endWidth * 0.5)
-
-      // Volumetric light beam gradient (radiant core fading to stage floor)
-      const beamGrad = ctx.createLinearGradient(origX, origY, endX, endY)
-      const beamColor = i % 2 === 0 ? vibe.primary : vibe.secondary
-      const coreAlpha = 0.28 + curBass * 0.38 + (i === 2 || i === 3 ? curMid * 0.25 : 0)
-
-      beamGrad.addColorStop(0, hexToRgba(beamColor, coreAlpha))
-      beamGrad.addColorStop(0.25, hexToRgba(beamColor, coreAlpha * 0.65))
-      beamGrad.addColorStop(0.70, hexToRgba(beamColor, coreAlpha * 0.22))
-      beamGrad.addColorStop(1, "transparent")
-
-      ctx.fillStyle = beamGrad
-      ctx.beginPath()
-      ctx.moveTo(p1x, p1y)
-      ctx.lineTo(p2x, p2y)
-      ctx.lineTo(p3x, p3y)
-      ctx.lineTo(p4x, p4y)
-      ctx.closePath()
-      ctx.fill()
-    }
-
-    // ─── 5. Stage Cross-Fire Lasers (Side Floor Diagonal Sweeps) ──────
-    // Left diagonal laser sweep
-    const leftLaserAngle = -0.22 + Math.sin(t * 0.8) * 0.18
-    const leftLaserLen = W * 1.1
-    const lEndX = Math.cos(leftLaserAngle) * leftLaserLen
-    const lEndY = H * 0.85 + Math.sin(leftLaserAngle) * leftLaserLen
-    const lGrad = ctx.createLinearGradient(0, H * 0.85, lEndX, lEndY)
-    lGrad.addColorStop(0, hexToRgba(vibe.neonHighlight, 0.45 + curTreble * 0.45))
-    lGrad.addColorStop(0.6, hexToRgba(vibe.primary, 0.15 + curBass * 0.25))
-    lGrad.addColorStop(1, "transparent")
-
-    ctx.strokeStyle = lGrad
-    ctx.lineWidth = 3 + curBass * 5
+    // Wave 1: Bass / Rhythm Floor Contour
+    const wave1BaseY = H * 0.72
     ctx.beginPath()
-    ctx.moveTo(0, H * 0.85)
-    ctx.lineTo(lEndX, lEndY)
-    ctx.stroke()
-
-    // Right diagonal laser sweep
-    const rightLaserAngle = Math.PI + 0.22 - Math.sin(t * 0.75 + 1.2) * 0.18
-    const rEndX = W + Math.cos(rightLaserAngle) * leftLaserLen
-    const rEndY = H * 0.85 + Math.sin(rightLaserAngle) * leftLaserLen
-    const rGrad = ctx.createLinearGradient(W, H * 0.85, rEndX, rEndY)
-    rGrad.addColorStop(0, hexToRgba(vibe.secondary, 0.45 + curMid * 0.45))
-    rGrad.addColorStop(0.6, hexToRgba(vibe.accent, 0.15 + curBass * 0.25))
-    rGrad.addColorStop(1, "transparent")
-
-    ctx.strokeStyle = rGrad
-    ctx.lineWidth = 3 + curBass * 5
-    ctx.beginPath()
-    ctx.moveTo(W, H * 0.85)
-    ctx.lineTo(rEndX, rEndY)
-    ctx.stroke()
-
-    // ─── 6. Multi-Band Fluid Audio Spectrum Ribbons ───────────────────
-    // Real-time dynamic ribbons dancing with bass, vocals, and instruments
-    const spectrum = audioDsp.getFullSpectrumData()
-    const pointsCount = 48
-    const stepX = W / (pointsCount - 1)
-
-    // Ribbon 1: Sub-Bass / Kick Energy (Bins 0 to 18, near floor)
-    const baseY1 = H * 0.80
-    ctx.beginPath()
-    ctx.moveTo(0, baseY1)
-    for (let i = 0; i < pointsCount; i++) {
-      const frac = i / (pointsCount - 1)
-      const binIdx = Math.min(18, Math.floor(frac * 18))
-      const binAmp = spectrum[binIdx] || 0
-      const wave = Math.sin(t * 2.8 + frac * Math.PI * 4) * (20 + curBass * 35)
-      const y = baseY1 - (binAmp * 110 * curBass) - wave
-      ctx.lineTo(i * stepX, y)
+    ctx.moveTo(0, wave1BaseY)
+    for (let i = 0; i < wavePoints; i++) {
+      const frac = i / (wavePoints - 1)
+      const wy = wave1BaseY + Math.sin(t * 1.8 + frac * Math.PI * 3) * (30 + curBass * 40)
+      ctx.lineTo(i * waveStepX, wy)
     }
     ctx.lineTo(W, H)
     ctx.lineTo(0, H)
     ctx.closePath()
 
-    const ribbon1Grad = ctx.createLinearGradient(0, baseY1 - 80, 0, H)
-    ribbon1Grad.addColorStop(0, hexToRgba(vibe.primary, 0.28 + curBass * 0.35))
-    ribbon1Grad.addColorStop(0.5, hexToRgba(vibe.secondary, 0.10 + curBass * 0.15))
-    ribbon1Grad.addColorStop(1, "transparent")
-    ctx.fillStyle = ribbon1Grad
+    const wave1Grad = ctx.createLinearGradient(0, wave1BaseY - 40, 0, H)
+    wave1Grad.addColorStop(0, hexToRgba(vibe.primary, 0.18 + curBass * 0.24))
+    wave1Grad.addColorStop(0.6, hexToRgba(vibe.secondary, 0.08 + curBass * 0.12))
+    wave1Grad.addColorStop(1, "transparent")
+    ctx.fillStyle = wave1Grad
     ctx.fill()
 
-    // Ribbon 1 Glowing Top Contour Stroke
+    // Wave 2: Melodic Mid Contour (Flowing through mid-stage)
+    const wave2BaseY = H * 0.52
     ctx.beginPath()
-    ctx.moveTo(0, baseY1)
-    for (let i = 0; i < pointsCount; i++) {
-      const frac = i / (pointsCount - 1)
-      const binIdx = Math.min(18, Math.floor(frac * 18))
-      const binAmp = spectrum[binIdx] || 0
-      const wave = Math.sin(t * 2.8 + frac * Math.PI * 4) * (20 + curBass * 35)
-      const y = baseY1 - (binAmp * 110 * curBass) - wave
-      ctx.lineTo(i * stepX, y)
+    ctx.moveTo(0, wave2BaseY)
+    for (let i = 0; i < wavePoints; i++) {
+      const frac = i / (wavePoints - 1)
+      const wy = wave2BaseY + Math.sin(t * 2.4 + frac * Math.PI * 4 + 1.2) * (20 + curMid * 32)
+      ctx.lineTo(i * waveStepX, wy)
     }
-    ctx.strokeStyle = hexToRgba(vibe.primary, 0.65 + curBass * 0.35)
-    ctx.lineWidth = 2.5 + curBass * 2.5
-    ctx.stroke()
+    ctx.lineTo(W, H)
+    ctx.lineTo(0, H)
+    ctx.closePath()
 
-    // Ribbon 2: Vocal & Lead Melody Wave (Bins 18 to 44, across middle stage)
-    const baseY2 = H * 0.60
-    ctx.beginPath()
-    ctx.moveTo(0, baseY2)
-    for (let i = 0; i < pointsCount; i++) {
-      const frac = i / (pointsCount - 1)
-      const binIdx = 18 + Math.min(26, Math.floor(frac * 26))
-      const binAmp = spectrum[binIdx] || 0
-      const wave = Math.sin(t * 3.6 + frac * Math.PI * 5) * (15 + curMid * 28)
-      const y = baseY2 - (binAmp * 85 * curMid) - wave
-      ctx.lineTo(i * stepX, y)
-    }
-    ctx.strokeStyle = hexToRgba(vibe.secondary, 0.55 + curMid * 0.40)
-    ctx.lineWidth = 2 + curMid * 2
-    ctx.stroke()
+    const wave2Grad = ctx.createLinearGradient(0, wave2BaseY - 30, 0, H)
+    wave2Grad.addColorStop(0, hexToRgba(vibe.secondary, 0.14 + curMid * 0.20))
+    wave2Grad.addColorStop(0.7, hexToRgba(vibe.accent, 0.06 + curMid * 0.10))
+    wave2Grad.addColorStop(1, "transparent")
+    ctx.fillStyle = wave2Grad
+    ctx.fill()
 
-    // Ribbon 3: Crystalline Treble & Instrument Shimmer (Bins 44 to 63)
-    const baseY3 = H * 0.44
-    ctx.beginPath()
-    ctx.moveTo(0, baseY3)
-    for (let i = 0; i < pointsCount; i++) {
-      const frac = i / (pointsCount - 1)
-      const binIdx = 44 + Math.min(19, Math.floor(frac * 19))
-      const binAmp = spectrum[binIdx] || 0
-      const wave = Math.sin(t * 5.2 + frac * Math.PI * 7) * (10 + curTreble * 22)
-      const y = baseY3 - (binAmp * 65 * curTreble) - wave
-      ctx.lineTo(i * stepX, y)
-    }
-    ctx.strokeStyle = hexToRgba(vibe.neonHighlight, 0.45 + curTreble * 0.45)
-    ctx.lineWidth = 1.8 + curTreble * 2
-    ctx.stroke()
+    // ─── 5. Soft Out-Of-Focus Stardust Bokeh (Highs & Air) ────────────
+    const pts = stardustRef.current
+    for (let i = 0; i < pts.length; i++) {
+      const p = pts[i]
+      p.y -= p.speedY * dt
+      if (p.y < -0.05) p.y = 1.05
 
-    // ─── 7. Expanding Beat Shockwave Rings (Bass Drops) ───────────────
-    const sws = shockwavesRef.current
-    for (let i = sws.length - 1; i >= 0; i--) {
-      const sw = sws[i]
-      sw.radius += (sw.maxRadius - sw.radius) * 0.08 * dt
-      sw.opacity *= Math.pow(0.92, dt)
+      const px = p.x * W + Math.sin(t * 0.35 + p.seed) * 25
+      const py = p.y * H
+      const pr = p.r * (1 + curTreble * 0.35)
+      const pAlpha = (0.05 + curTreble * 0.20) * Math.sin((p.y % 1) * Math.PI)
 
-      if (sw.opacity < 0.02 || sw.radius >= sw.maxRadius * 0.96) {
-        sws.splice(i, 1)
-        continue
-      }
-
-      ctx.beginPath()
-      ctx.arc(sw.x, sw.y, sw.radius, 0, Math.PI * 2)
-      ctx.strokeStyle = hexToRgba(sw.color, sw.opacity)
-      ctx.lineWidth = 3 + (1 - sw.radius / sw.maxRadius) * 6
-      ctx.stroke()
-    }
-
-    // ─── 8. Instrument Laser Needles (Sharp Strobe Streaks on Highs) ───
-    if (curTreble > 0.38) {
-      const needleCount = Math.floor(curTreble * 3)
-      for (let n = 0; n < needleCount; n++) {
-        const ny = H * (0.30 + Math.sin(t * 4 + n) * 0.25)
-        const nGrad = ctx.createLinearGradient(0, ny, W, ny)
-        nGrad.addColorStop(0, "transparent")
-        nGrad.addColorStop(0.5, hexToRgba(vibe.trebleSparkColor, curTreble * 0.6))
-        nGrad.addColorStop(1, "transparent")
-
-        ctx.strokeStyle = nGrad
-        ctx.lineWidth = 1.5 + curTreble * 2
+      if (pAlpha > 0.01) {
+        const pGrad = ctx.createRadialGradient(px, py, 0, px, py, pr)
+        pGrad.addColorStop(0, hexToRgba(vibe.trebleSparkColor, pAlpha))
+        pGrad.addColorStop(1, "transparent")
+        ctx.fillStyle = pGrad
         ctx.beginPath()
-        ctx.moveTo(0, ny)
-        ctx.lineTo(W, ny)
-        ctx.stroke()
+        ctx.arc(px, py, pr, 0, Math.PI * 2)
+        ctx.fill()
       }
     }
 
-    // ─── 9. Stage Perimeter Ambilight (Room Wash) ────────────────────
+    // ─── 6. Room-Wash Edge Ambilight ──────────────────────────────────
     ctx.globalCompositeOperation = "source-over"
 
-    // Bottom Subwoofer Floor Wash
-    const edgeBottomH = H * 0.25
+    // Floor Subwoofer Glow
+    const edgeBottomH = H * 0.22
     const edgeBottom = ctx.createLinearGradient(0, H, 0, H - edgeBottomH)
-    edgeBottom.addColorStop(0, hexToRgba(vibe.primary, 0.38 + curBass * 0.45))
-    edgeBottom.addColorStop(0.5, hexToRgba(vibe.primary, 0.10 + curBass * 0.15))
+    edgeBottom.addColorStop(0, hexToRgba(vibe.primary, 0.32 + curBass * 0.40))
+    edgeBottom.addColorStop(0.6, hexToRgba(vibe.primary, 0.08 + curBass * 0.12))
     edgeBottom.addColorStop(1, "transparent")
     ctx.fillStyle = edgeBottom
     ctx.fillRect(0, H - edgeBottomH, W, edgeBottomH)
 
-    // Top Ceiling Wash (Vocals & Melody)
-    const edgeTopH = H * 0.18
+    // Ceiling Vocal Wash
+    const edgeTopH = H * 0.16
     const edgeTop = ctx.createLinearGradient(0, 0, 0, edgeTopH)
-    edgeTop.addColorStop(0, hexToRgba(vibe.secondary, 0.26 + curMid * 0.35))
+    edgeTop.addColorStop(0, hexToRgba(vibe.secondary, 0.22 + curMid * 0.30))
     edgeTop.addColorStop(1, "transparent")
     ctx.fillStyle = edgeTop
     ctx.fillRect(0, 0, W, edgeTopH)
 
-    // Side Stage Washes
-    const edgeSideW = W * 0.12
+    // Lateral Wall Reflections
+    const edgeSideW = W * 0.10
     const edgeLeft = ctx.createLinearGradient(0, 0, edgeSideW, 0)
-    edgeLeft.addColorStop(0, hexToRgba(vibe.accent, 0.16 + curOverall * 0.22))
+    edgeLeft.addColorStop(0, hexToRgba(vibe.accent, 0.14 + curOverall * 0.18))
     edgeLeft.addColorStop(1, "transparent")
     ctx.fillStyle = edgeLeft
     ctx.fillRect(0, 0, edgeSideW, H)
 
     const edgeRight = ctx.createLinearGradient(W, 0, W - edgeSideW, 0)
-    edgeRight.addColorStop(0, hexToRgba(vibe.primary, 0.16 + curOverall * 0.22))
+    edgeRight.addColorStop(0, hexToRgba(vibe.primary, 0.14 + curOverall * 0.18))
     edgeRight.addColorStop(1, "transparent")
     ctx.fillStyle = edgeRight
     ctx.fillRect(W - edgeSideW, 0, edgeSideW, H)

@@ -207,7 +207,12 @@ export default function MotionLyrics() {
   // Direct 60 FPS DOM refs for zero-lag hardware reactive bloom
   const coverContainerRef = useRef<HTMLDivElement | null>(null)
   const haloRef = useRef<HTMLDivElement | null>(null)
+  const circularCanvasRef = useRef<HTMLCanvasElement | null>(null)
   const smoothBassRef = useRef(0)
+  const smoothMidRef = useRef(0)
+  const smoothTrebleRef = useRef(0)
+  const prevBassValRef = useRef(0)
+  const ripplesRef = useRef<Array<{ r: number; maxR: number; opacity: number }>>([])
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
   // Soft mood vibe for subtle text glow
@@ -232,24 +237,137 @@ export default function MotionLyrics() {
 
       // Update Center Cover Pulse & Halo Bloom directly on DOM (60 FPS, 0 React re-renders)
       const raw = audioDsp.getReactivityData()
-      smoothBassRef.current += (raw.bassLevel - smoothBassRef.current) * 0.22
+      smoothBassRef.current += (raw.bassLevel - smoothBassRef.current) * 0.24
+      smoothMidRef.current += (raw.midLevel - smoothMidRef.current) * 0.20
+      smoothTrebleRef.current += (raw.trebleLevel - smoothTrebleRef.current) * 0.22
 
       if (coverContainerRef.current) {
         const scale = 1 + smoothBassRef.current * 0.038
         coverContainerRef.current.style.transform = `scale(${scale})`
       }
       if (haloRef.current) {
-        const haloScale = 1 + smoothBassRef.current * 0.14
-        const haloOpacity = 0.28 + smoothBassRef.current * 0.32
+        const haloScale = 1 + smoothBassRef.current * 0.12
+        const haloOpacity = 0.24 + smoothBassRef.current * 0.28
         haloRef.current.style.transform = `scale(${haloScale})`
         haloRef.current.style.opacity = `${haloOpacity}`
+      }
+
+      // Render 360° Circular Audio Waveform Halo around the Center Cover
+      const canvas = circularCanvasRef.current
+      if (canvas) {
+        const rect = canvas.getBoundingClientRect()
+        const dpr = Math.min(2, window.devicePixelRatio || 1)
+        const reqW = Math.round(rect.width * dpr)
+        const reqH = Math.round(rect.height * dpr)
+        if (canvas.width !== reqW || canvas.height !== reqH) {
+          canvas.width = reqW
+          canvas.height = reqH
+        }
+        const ctx = canvas.getContext("2d")
+        if (ctx && reqW > 0 && reqH > 0) {
+          ctx.clearRect(0, 0, reqW, reqH)
+          const cx = reqW / 2
+          const cy = reqH / 2
+          const baseR = Math.min(reqW, reqH) * 0.31
+          const spectrum = audioDsp.getFullSpectrumData()
+
+          // 1. Kick Shockwave Pulse Ripples
+          const bassDelta = raw.bassLevel - prevBassValRef.current
+          prevBassValRef.current = raw.bassLevel
+          if (bassDelta > 0.15 && ripplesRef.current.length < 4) {
+            ripplesRef.current.push({
+              r: baseR,
+              maxR: baseR * 1.52,
+              opacity: 0.65,
+            })
+          }
+
+          const rips = ripplesRef.current
+          for (let i = rips.length - 1; i >= 0; i--) {
+            const rip = rips[i]
+            rip.r += (rip.maxR - rip.r) * 0.09
+            rip.opacity *= 0.93
+            if (rip.opacity < 0.02 || rip.r >= rip.maxR * 0.96) {
+              rips.splice(i, 1)
+              continue
+            }
+            ctx.beginPath()
+            ctx.arc(cx, cy, rip.r, 0, Math.PI * 2)
+            ctx.strokeStyle = hexToRgba(vibe.primary, rip.opacity)
+            ctx.lineWidth = 2.4 * dpr
+            ctx.stroke()
+          }
+
+          // 2. Center Vocal & Bass Underglow
+          const glowR = baseR * (1.08 + smoothBassRef.current * 0.22 + smoothMidRef.current * 0.18)
+          const glowGrad = ctx.createRadialGradient(cx, cy, baseR * 0.65, cx, cy, glowR)
+          glowGrad.addColorStop(0, hexToRgba(vibe.primary, 0.32 + smoothBassRef.current * 0.32))
+          glowGrad.addColorStop(0.55, hexToRgba(vibe.secondary, 0.16 + smoothMidRef.current * 0.22))
+          glowGrad.addColorStop(1, "transparent")
+          ctx.fillStyle = glowGrad
+          ctx.beginPath()
+          ctx.arc(cx, cy, glowR, 0, Math.PI * 2)
+          ctx.fill()
+
+          // 3. 360° Circular Frequency Waveform Ring
+          const numPoints = 64
+          const rKick = baseR * (1 + smoothBassRef.current * 0.05)
+          const points: Array<{ x: number; y: number }> = []
+
+          for (let i = 0; i < numPoints; i++) {
+            const angle = (i / numPoints) * Math.PI * 2 - Math.PI / 2
+            const specAmp = spectrum[i] || 0
+            const disp = specAmp * (baseR * 0.40) * (0.35 + smoothBassRef.current * 0.35 + smoothMidRef.current * 0.30)
+            const r = rKick + disp
+            const px = cx + Math.cos(angle) * r
+            const py = cy + Math.sin(angle) * r
+            points.push({ x: px, y: py })
+
+            // Subtle outward frequency light beacons on energy peaks
+            if (specAmp > 0.35) {
+              const rayLen = r + specAmp * (baseR * 0.18)
+              ctx.beginPath()
+              ctx.moveTo(px, py)
+              ctx.lineTo(cx + Math.cos(angle) * rayLen, cy + Math.sin(angle) * rayLen)
+              ctx.strokeStyle = hexToRgba(vibe.neonHighlight, specAmp * 0.50)
+              ctx.lineWidth = 1.6 * dpr
+              ctx.stroke()
+            }
+          }
+
+          // Draw Smooth Waveform Spline Loop
+          if (points.length > 2) {
+            ctx.beginPath()
+            ctx.moveTo(points[0].x, points[0].y)
+            for (let i = 0; i < points.length; i++) {
+              const next = points[(i + 1) % points.length]
+              const midX = (points[i].x + next.x) / 2
+              const midY = (points[i].y + next.y) / 2
+              ctx.quadraticCurveTo(points[i].x, points[i].y, midX, midY)
+            }
+            ctx.closePath()
+
+            // Smooth linear gradient around perimeter
+            const ringGrad = ctx.createLinearGradient(cx - baseR, cy - baseR, cx + baseR, cy + baseR)
+            ringGrad.addColorStop(0, vibe.primary)
+            ringGrad.addColorStop(0.5, vibe.secondary)
+            ringGrad.addColorStop(1, vibe.neonHighlight)
+
+            ctx.strokeStyle = ringGrad
+            ctx.lineWidth = (2.2 + smoothBassRef.current * 2.0) * dpr
+            ctx.shadowColor = vibe.primary
+            ctx.shadowBlur = 12 * dpr
+            ctx.stroke()
+            ctx.shadowBlur = 0
+          }
+        }
       }
 
       animId = requestAnimationFrame(tick)
     }
     animId = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(animId)
-  }, [isImmersiveVisualizerOpen])
+  }, [isImmersiveVisualizerOpen, vibe])
 
   // ─── Auto-hide controls after inactivity ─────────────────────
   const resetControlsTimeout = useCallback(() => {
@@ -520,37 +638,41 @@ export default function MotionLyrics() {
 
       {/* ─── CENTER STAGE: ALBUM COVER VISUAL ANCHOR + MUSIC SYNC RGB ─── */}
       <div className="relative z-10 w-full max-w-2xl px-4 sm:px-6 flex-1 flex flex-col items-center justify-center text-center overflow-hidden my-auto mx-auto">
-        {/* ─── 1. CENTER ALBUM COVER WITH ELEGANT REFINED RIM-GLOW ──── */}
+        {/* ─── 1. CENTER ALBUM COVER WITH AUDIO-REACTIVE CIRCULAR HALO ──── */}
         <div className="relative flex flex-col items-center justify-center mb-4 sm:mb-6 select-none mx-auto">
-          {/* Music-Sync Rim-Glow Hugging Cover Image (Soft stage backlight, NOT a detached ball) */}
-          <div
-            ref={haloRef}
-            className="absolute -inset-4 sm:-inset-6 md:-inset-8 rounded-3xl blur-2xl pointer-events-none transition-transform duration-100 ease-out"
-            style={{
-              background: `radial-gradient(ellipse at center, ${hexToRgba(vibe.primary, 0.55)} 0%, ${hexToRgba(vibe.secondary, 0.35)} 60%, transparent 85%)`,
-              opacity: 0.35,
-              transform: "scale(1)",
-            }}
-          />
-
-          {/* High-Res Center Cover Image with Real-time Beat Pulse */}
-          <div
-            ref={coverContainerRef}
-            className="relative z-10 w-36 h-36 sm:w-48 sm:h-48 md:w-56 md:h-56 lg:w-64 lg:h-64 rounded-2xl sm:rounded-3xl overflow-hidden border border-white/20 shadow-[0_20px_50px_rgba(0,0,0,0.85)] transition-transform duration-100 ease-out flex-shrink-0 mx-auto"
-            style={{
-              boxShadow: `0 16px 40px rgba(0,0,0,0.8), 0 0 35px ${hexToRgba(vibe.primary, 0.35)}`,
-            }}
-          >
-            <img
-              src={getSongCover(currentSong, 600)}
-              alt={currentSong?.title}
-              className="w-full h-full object-cover"
-              onError={(e) => {
-                e.currentTarget.src = "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=600&q=80"
+          {/* Cover & 360° Circular Audio Waveform Halo Canvas Wrapper */}
+          <div className="relative flex items-center justify-center">
+            {/* 360° Circular Audio-Reactive Waveform Halo Canvas */}
+            <canvas
+              ref={circularCanvasRef}
+              className="absolute pointer-events-none z-0"
+              style={{
+                width: "220%",
+                height: "220%",
+                top: "-60%",
+                left: "-60%",
               }}
             />
-            {/* Soft Ambient Gloss Sheen */}
-            <div className="absolute inset-0 bg-gradient-to-tr from-black/25 via-transparent to-white/10 pointer-events-none" />
+
+            {/* High-Res Center Cover Image with Real-time Beat Pulse */}
+            <div
+              ref={coverContainerRef}
+              className="relative z-10 w-36 h-36 sm:w-48 sm:h-48 md:w-56 md:h-56 lg:w-64 lg:h-64 rounded-2xl sm:rounded-3xl overflow-hidden border border-white/20 shadow-[0_20px_50px_rgba(0,0,0,0.85)] transition-transform duration-100 ease-out flex-shrink-0 mx-auto"
+              style={{
+                boxShadow: `0 16px 40px rgba(0,0,0,0.8), 0 0 35px ${hexToRgba(vibe.primary, 0.35)}`,
+              }}
+            >
+              <img
+                src={getSongCover(currentSong, 600)}
+                alt={currentSong?.title}
+                className="w-full h-full object-cover"
+                onError={(e) => {
+                  e.currentTarget.src = "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=600&q=80"
+                }}
+              />
+              {/* Soft Ambient Gloss Sheen */}
+              <div className="absolute inset-0 bg-gradient-to-tr from-black/25 via-transparent to-white/10 pointer-events-none" />
+            </div>
           </div>
 
           {/* Song Metadata Below Cover */}
