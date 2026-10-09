@@ -87,8 +87,8 @@ class AudioDspEngine {
 
       // Real-time Audio Analyser
       this.analyser = this.audioCtx.createAnalyser()
-      this.analyser.fftSize = 128
-      this.analyser.smoothingTimeConstant = 0.75
+      this.analyser.fftSize = 256
+      this.analyser.smoothingTimeConstant = 0.72
       this.freqData = new Uint8Array(new ArrayBuffer(this.analyser.frequencyBinCount))
 
       // Spatial Concert Processing Chain (Binaural Cross-feed & Ambient Delay)
@@ -263,6 +263,26 @@ class AudioDspEngine {
       return { bassLevel, midLevel, trebleLevel, overallLevel }
     } catch {
       return { bassLevel: 0, midLevel: 0, trebleLevel: 0, overallLevel: 0 }
+    }
+  }
+
+  /**
+   * Returns raw normalized frequency bin data for high-resolution visualizers.
+   * Each value is 0..1 representing the amplitude at that frequency bin.
+   */
+  public getFullSpectrumData(): Float32Array {
+    if (!this.analyser || !this.freqData) {
+      return new Float32Array(0)
+    }
+    try {
+      this.analyser.getByteFrequencyData(this.freqData as any)
+      const result = new Float32Array(this.freqData.length)
+      for (let i = 0; i < this.freqData.length; i++) {
+        result[i] = this.freqData[i] / 255
+      }
+      return result
+    } catch {
+      return new Float32Array(0)
     }
   }
 }

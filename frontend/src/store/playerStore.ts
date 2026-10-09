@@ -6,6 +6,8 @@ export type RightSidebarView = 'now_playing' | 'queue'
 export type SoundstageMode = 'pure' | 'club_bass' | 'vocal_air' | 'spatial_concert'
 export type VisualizerMode = 'spectrum' | 'pulse' | 'off'
 
+// Immersive full-screen visualizer (canvas + motion lyrics overlay)
+
 interface PlayerState {
   currentSong: Song | null
   isPlaying: boolean
@@ -29,6 +31,9 @@ interface PlayerState {
   soundstageMode: SoundstageMode
   visualizerMode: VisualizerMode
 
+  // Immersive Full-Screen Visualizer + Motion Lyrics
+  isImmersiveVisualizerOpen: boolean
+
   // Actions
   setCurrentSong: (song: Song) => void
   setIsPlaying: (isPlaying: boolean) => void
@@ -49,6 +54,7 @@ interface PlayerState {
   toggleAmbientLighting: () => void
   setSoundstageMode: (mode: SoundstageMode) => void
   setVisualizerMode: (mode: VisualizerMode) => void
+  toggleImmersiveVisualizer: () => void
   
   // Queue operations
   addToQueue: (song: Song) => void
@@ -112,6 +118,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   ambientLighting: true,
   soundstageMode: 'pure',
   visualizerMode: 'spectrum',
+  isImmersiveVisualizerOpen: false,
 
   initFromStorage: () => {
     if (typeof window === 'undefined') return
@@ -487,5 +494,8 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   setVisualizerMode: (mode) => {
     setStorage('tunely_visualizer_mode', mode)
     set({ visualizerMode: mode })
+  },
+  toggleImmersiveVisualizer: () => {
+    set((state) => ({ isImmersiveVisualizerOpen: !state.isImmersiveVisualizerOpen }))
   },
 }))

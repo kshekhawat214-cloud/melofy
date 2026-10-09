@@ -103,6 +103,56 @@ body {
   animation: aura-pulse 6s ease-in-out infinite;
 }
 
+/* Motion Graphics Lyrics — Per-Word Kinetic Reveal */
+@keyframes lyricWordReveal {
+  0% {
+    opacity: 0;
+    transform: translateY(18px) scale(0.88) rotateX(15deg);
+    filter: blur(6px);
+  }
+  50% {
+    opacity: 0.85;
+    transform: translateY(-3px) scale(1.04);
+    filter: blur(0px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0px);
+  }
+}
+
+/* Motion Graphics Lyrics — Line Entrance from Below */
+@keyframes lyricLineEntrance {
+  0% {
+    opacity: 0;
+    transform: translateY(40px) scale(0.9);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Motion Graphics Lyrics — Active Line Energy Pulse */
+@keyframes lyricEnergyPulse {
+  0%, 100% {
+    text-shadow: 0 0 20px rgba(255, 255, 255, 0.2), 0 0 60px rgba(29, 185, 84, 0.15);
+  }
+  50% {
+    text-shadow: 0 0 30px rgba(255, 255, 255, 0.4), 0 0 80px rgba(29, 185, 84, 0.3);
+  }
+}
+
+/* No-scrollbar utility for lyrics container */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
 * {
   box-sizing: border-box;
 }

@@ -15,6 +15,8 @@ import ProfileModal from "@/components/ProfileModal"
 import AuthModal from "@/components/AuthModal"
 import BackendWarmup from "@/components/BackendWarmup"
 import AmbientGlow from "@/components/AmbientGlow"
+import ImmersiveVisualizer from "@/components/ImmersiveVisualizer"
+import MotionLyrics from "@/components/MotionLyrics"
 import "./globals.css"
 
 const inter = Inter({
@@ -91,6 +93,10 @@ export default function RootLayout({
         <ContextMenu />
         <ToastContainer />
         <BackendWarmup />
+
+        {/* Immersive Full-Screen Audio Visualizer + Motion Graphics Lyrics */}
+        <ImmersiveVisualizer />
+        <MotionLyrics />
       </body>
     </html>
   )

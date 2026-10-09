@@ -1,7 +1,7 @@
 "use client"
 import { usePlayerStore } from "@/store/playerStore"
 import { useUIStore } from "@/store/uiStore"
-import { X, Play, Music, UserCheck, UserPlus, Trash2, ListMusic, Info } from "lucide-react"
+import { X, Play, Music, UserCheck, UserPlus, Trash2, ListMusic, Info, Sparkles, AudioWaveform } from "lucide-react"
 import { useState } from "react"
 import Link from "next/link"
 import { getSongCover } from "@/lib/api"
@@ -20,6 +20,7 @@ export default function RightSidebar() {
     toggleRightSidebar,
     rightSidebarView,
     setRightSidebarView,
+    toggleImmersiveVisualizer,
   } = usePlayerStore()
 
   const { openContextMenu } = useUIStore()
@@ -73,6 +74,16 @@ export default function RightSidebar() {
             {/* Large Cover Art */}
             <div className="relative rounded-lg overflow-hidden shadow-2xl shadow-black/80 aspect-square group">
               <img src={coverSrc} alt={currentSong.title} className="w-full h-full object-cover" />
+              <button
+                onClick={toggleImmersiveVisualizer}
+                className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2 text-white font-bold text-xs cursor-pointer"
+                title="Launch Ambient Light Show & Motion Lyrics"
+              >
+                <div className="w-12 h-12 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center border border-white/30 shadow-lg group-hover:scale-110 transition-transform">
+                  <AudioWaveform size={22} className="text-fuchsia-300" />
+                </div>
+                <span className="drop-shadow text-white/90">Open Light Show</span>
+              </button>
             </div>
 
             {/* Song Meta */}
@@ -84,6 +95,31 @@ export default function RightSidebar() {
                 {currentSong.artist}
               </p>
             </div>
+
+            {/* Ambient Light Show & Motion Lyrics Banner */}
+            <button
+              onClick={toggleImmersiveVisualizer}
+              className="w-full py-2.5 px-3.5 rounded-xl bg-gradient-to-r from-fuchsia-600/25 via-purple-600/25 to-pink-600/25 hover:from-fuchsia-600/40 hover:via-purple-600/40 hover:to-pink-600/40 border border-fuchsia-500/35 text-white flex items-center justify-between shadow-[0_0_16px_rgba(192,38,211,0.2)] hover:shadow-[0_0_22px_rgba(192,38,211,0.45)] transition-all cursor-pointer group"
+              title="Launch Full-Screen Ambient Light Show & Motion Lyrics"
+            >
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-fuchsia-500/30 flex items-center justify-center text-fuchsia-300 group-hover:scale-110 transition-transform">
+                  <Sparkles size={16} className="text-fuchsia-400 animate-pulse" />
+                </div>
+                <div className="text-left">
+                  <div className="text-xs font-bold text-white flex items-center gap-1.5">
+                    Ambient Light Show
+                    <span className="text-[9px] bg-fuchsia-500/40 text-fuchsia-200 px-1.5 py-0.2 rounded font-mono uppercase">
+                      NEW
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-fuchsia-200/70 font-normal">
+                    Motion Lyrics & Visualizer
+                  </div>
+                </div>
+              </div>
+              <AudioWaveform size={18} className="text-fuchsia-300 group-hover:translate-x-0.5 transition-transform" />
+            </button>
 
             {/* About the Artist Card */}
             <div className="bg-[#1e1e1e] rounded-xl overflow-hidden border border-[#2c2c2c] group">

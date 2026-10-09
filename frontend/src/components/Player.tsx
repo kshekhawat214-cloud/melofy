@@ -28,6 +28,7 @@ import {
   Radio,
   Disc3,
   Activity,
+  AudioWaveform,
 } from "lucide-react"
 import { usePlayerStore } from "@/store/playerStore"
 import { useUIStore } from "@/store/uiStore"
@@ -70,6 +71,8 @@ export default function Player() {
     setSoundstageMode,
     visualizerMode,
     setVisualizerMode,
+    isImmersiveVisualizerOpen,
+    toggleImmersiveVisualizer,
   } = usePlayerStore()
 
   const { likedSongIds, toggleLikeSong, openContextMenu, addToast } = useUIStore()
@@ -880,6 +883,17 @@ export default function Player() {
                 <button
                   onClick={() => {
                     closeMobileNowPlaying()
+                    toggleImmersiveVisualizer()
+                  }}
+                  className={`p-2 hover:text-white transition ${isImmersiveVisualizerOpen ? "text-fuchsia-400" : ""}`}
+                  title="Immersive Mode"
+                >
+                  <AudioWaveform size={20} />
+                </button>
+
+                <button
+                  onClick={() => {
+                    closeMobileNowPlaying()
                     toggleLyrics()
                   }}
                   className={`p-2 hover:text-white transition ${isLyricsOpen ? "text-[#1db954]" : ""}`}
@@ -1195,6 +1209,21 @@ export default function Player() {
             <PanelRight size={17} />
           </button>
 
+          {/* Immersive Visualizer Toggle */}
+          <button
+            onClick={toggleImmersiveVisualizer}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-semibold transition-all cursor-pointer ${
+              isImmersiveVisualizerOpen
+                ? "bg-gradient-to-r from-fuchsia-600 to-indigo-600 text-white shadow-[0_0_16px_rgba(192,38,211,0.6)]"
+                : "bg-fuchsia-500/15 hover:bg-fuchsia-500/25 text-fuchsia-300 hover:text-white border border-fuchsia-500/40 shadow-[0_0_12px_rgba(192,38,211,0.25)] hover:shadow-[0_0_18px_rgba(192,38,211,0.5)]"
+            }`}
+            title="Ambient Light Show & Motion Lyrics"
+          >
+            <Sparkles size={13} className="text-fuchsia-400 animate-pulse" />
+            <span className="hidden xl:inline text-[11px] font-bold">Light Show</span>
+            <AudioWaveform size={15} />
+          </button>
+
           {/* Volume Slider */}
           <div className="flex items-center group w-24 lg:w-28 ml-0.5">
             <button onClick={toggleMute} className="hover:text-white transition mr-1.5">
@@ -1285,6 +1314,22 @@ export default function Player() {
             </div>
 
             <div className="flex items-center space-x-3">
+              {/* Immersive Visualizer Toggle */}
+              <button
+                onClick={() => {
+                  setIsDesktopFullscreenOpen(false)
+                  toggleImmersiveVisualizer()
+                }}
+                className={`p-2.5 rounded-full transition cursor-pointer ${
+                  isImmersiveVisualizerOpen
+                    ? "text-fuchsia-400 bg-fuchsia-400/10 shadow-[0_0_12px_rgba(192,38,211,0.35)]"
+                    : "text-[#b3b3b3] hover:text-white bg-white/5 hover:bg-white/10"
+                }`}
+                title="Immersive Mode: Full-Screen Visualizer + Motion Lyrics"
+              >
+                <AudioWaveform size={20} />
+              </button>
+
               {/* Lyrics Toggle Button */}
               <button
                 onClick={toggleLyrics}
