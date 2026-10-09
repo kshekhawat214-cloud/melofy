@@ -79,6 +79,8 @@ export default function Player() {
 
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const audioRetryRef = useRef<{ id: string; count: number }>({ id: "", count: 0 })
+  const audioRetryTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const shouldPlayOnReadyRef = useRef(false)
   const { user } = useAuthStore()
   const currentUserId = user?.id || "1"
   const hasLoggedPlayRef = useRef(false)
@@ -200,13 +202,22 @@ export default function Player() {
     if (previousSongRef.current && previousSongRef.current.id !== currentSong.id) {
       restoredSeekAppliedRef.current = true
     }
+    if (audioRetryTimerRef.current) {
+      clearTimeout(audioRetryTimerRef.current)
+    }
     audioRetryRef.current = { id: currentSong.id, count: 0 }
     hasLoggedPlayRef.current = false
     setIsBuffering(true)
+    shouldPlayOnReadyRef.current = isPlaying
     if (currentSong.duration) {
       setDuration(currentSong.duration)
     }
     previousSongRef.current = { id: currentSong.id, duration: currentSong.duration, progress: 0 }
+
+    // Proactively reload audio element to ensure browser picks up the new source cleanly
+    if (audioRef.current) {
+      audioRef.current.load()
+    }
   }, [currentSong?.id, currentUserId])
 
   // Web Audio DSP Soundstage Engine Hook
@@ -242,13 +253,24 @@ export default function Player() {
         audioDsp.applyMode(soundstageMode)
       }
       applyCurrentVolume()
-      const playPromise = audio.play()
-      if (playPromise !== undefined) {
-        playPromise.catch((err) => {
-          console.info("Playback transition handled:", err)
-        })
+
+      // If audio has sufficient data loaded, initiate playback
+      if (audio.readyState >= 2) {
+        const playPromise = audio.play()
+        if (playPromise !== undefined) {
+          playPromise.catch((err) => {
+            console.info("Playback transition handled:", err)
+          })
+        }
+      } else {
+        // Queue playback to trigger the instant onCanPlay / onLoadedData fires
+        shouldPlayOnReadyRef.current = true
+        if (audio.error || audio.networkState === HTMLMediaElement.NETWORK_NO_SOURCE) {
+          audio.load()
+        }
       }
     } else {
+      shouldPlayOnReadyRef.current = false
       audio.pause()
     }
   }, [isPlaying, soundstageMode, currentSong?.id])
@@ -608,32 +630,55 @@ export default function Player() {
                 }
               }
             }
-            if (isPlaying && audioRef.current && audioRef.current.paused) {
+            if (isPlaying || shouldPlayOnReadyRef.current) {
               audioDsp.resume()
-              audioRef.current.play().catch((err) => console.log("Audio autoplay prevented:", err))
+              if (audioRef.current && audioRef.current.paused) {
+                audioRef.current.play().catch((err) => console.log("Audio autoplay prevented:", err))
+              }
             }
           }}
           onError={(e) => {
             console.error("Audio stream error:", e)
-            if (currentSong && audioRetryRef.current.id === currentSong.id && audioRetryRef.current.count < 3) {
+            if (!currentSong) return
+
+            if (audioRetryRef.current.id !== currentSong.id) {
+              audioRetryRef.current = { id: currentSong.id, count: 0 }
+            }
+
+            // Up to 6 resilient retries with progressive backoff (total ~25s window for on-demand resolver)
+            if (audioRetryRef.current.count < 6) {
               audioRetryRef.current.count += 1
-              console.log(`Auto-retrying audio playback (attempt ${audioRetryRef.current.count})...`)
-              setTimeout(() => {
+              const count = audioRetryRef.current.count
+              setIsBuffering(true)
+              const delay = Math.min(5000, 1000 + (count - 1) * 800)
+              console.log(`Auto-retrying audio playback for "${currentSong.title}" (attempt ${count}/6 in ${delay}ms)...`)
+
+              if (audioRetryTimerRef.current) clearTimeout(audioRetryTimerRef.current)
+              audioRetryTimerRef.current = setTimeout(() => {
                 if (audioRef.current && currentSong) {
                   const baseAudioUrl = getFullAudioUrl(currentSong.streamUrl)
                   const sep = baseAudioUrl.includes("?") ? "&" : "?"
-                  audioRef.current.crossOrigin = "anonymous"
-                  audioRef.current.src = `${baseAudioUrl}${sep}_retry=${audioRetryRef.current.count}&_t=${Date.now()}`
+
+                  // Fail-safe: on attempt 3+, remove crossorigin restriction to bypass any browser CORS edge case
+                  if (count >= 3) {
+                    audioRef.current.removeAttribute("crossorigin")
+                  } else {
+                    audioRef.current.crossOrigin = "anonymous"
+                  }
+
+                  audioRef.current.src = `${baseAudioUrl}${sep}_retry=${count}&_t=${Date.now()}`
                   audioRef.current.load()
                   applyCurrentVolume()
+                  shouldPlayOnReadyRef.current = true
                   if (isPlaying) {
                     audioDsp.resume()
                     audioRef.current.play().catch((err) => console.log("Auto-retry play prevented:", err))
                   }
                 }
-              }, 800)
+              }, delay)
             } else {
               setIsBuffering(false)
+              addToast(`Audio stream connection interrupted. Please try again.`, "error")
             }
           }}
           onEnded={handleEnded}
