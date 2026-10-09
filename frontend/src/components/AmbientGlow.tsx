@@ -61,35 +61,29 @@ export default function AmbientGlow() {
         const effectiveTreble = trebleLevel > 0.03 ? Math.max(trebleLevel * 1.5, beatPulse * 0.4) : beatPulse * 0.3
         const effectiveLoudness = overallLevel > 0.03 ? Math.max(overallLevel * 1.3, beatPulse * 0.8) : beatPulse * 0.8
 
-        // Liquid exponential lerping
-        smoothBassRef.current += (effectiveBass - smoothBassRef.current) * 0.16
-        smoothMidRef.current += (effectiveMid - smoothMidRef.current) * 0.12
-        smoothTrebleRef.current += (effectiveTreble - smoothTrebleRef.current) * 0.15
-        smoothLoudnessRef.current += (effectiveLoudness - smoothLoudnessRef.current) * 0.13
+        // Gentle, soothing breathing (no harsh strobes or rapid hue shifts)
+        smoothBassRef.current += (effectiveBass - smoothBassRef.current) * 0.08
+        smoothMidRef.current += (effectiveMid - smoothMidRef.current) * 0.08
+        smoothTrebleRef.current += (effectiveTreble - smoothTrebleRef.current) * 0.08
+        smoothLoudnessRef.current += (effectiveLoudness - smoothLoudnessRef.current) * 0.08
 
-        // Bass punch detection
-        const kickMagnitude = Math.max(0, smoothBassRef.current - 0.25) * 1.8
-        setBassKick(Math.min(1, kickMagnitude))
+        const kickMagnitude = Math.max(0, smoothBassRef.current - 0.2) * 0.6
+        setBassKick(Math.min(0.5, kickMagnitude))
 
-        // Dynamic hue rotation for RGB sweep vibe
-        if (vibe.lightingStyle === "laser_strobe" || vibe.lightingStyle === "prism_chromatic") {
-          hueTimer += dt * (20 + smoothBassRef.current * 40)
-          setVibeHueShift(hueTimer % 360)
-        } else {
-          setVibeHueShift(Math.sin(now * 0.0008) * 15)
-        }
+        // Very slow, soothing drift
+        setVibeHueShift(Math.sin(now * 0.0003) * 10)
 
-        const targetScale = 1.0 + Math.min(0.28, smoothBassRef.current * 0.35)
-        const targetOpacity = 0.75 + Math.min(0.25, smoothLoudnessRef.current * 0.30)
+        const targetScale = 1.0 + Math.min(0.12, smoothBassRef.current * 0.15)
+        const targetOpacity = 0.45 + Math.min(0.2, smoothLoudnessRef.current * 0.2)
 
         setEnergyScale(targetScale)
         setGlowOpacity(targetOpacity)
       } else {
-        smoothBassRef.current += (0 - smoothBassRef.current) * 0.06
-        smoothMidRef.current += (0 - smoothMidRef.current) * 0.06
+        smoothBassRef.current += (0 - smoothBassRef.current) * 0.04
+        smoothMidRef.current += (0 - smoothMidRef.current) * 0.04
         setEnergyScale(1.0)
         setBassKick(0)
-        setGlowOpacity(0.45)
+        setGlowOpacity(0.35)
       }
 
       animationFrameRef.current = requestAnimationFrame(updateAura)
@@ -102,14 +96,14 @@ export default function AmbientGlow() {
         cancelAnimationFrame(animationFrameRef.current)
       }
     }
-  }, [isPlaying, ambientLighting, currentSong?.energy, currentSong?.tempo, vibe.lightingStyle])
+  }, [isPlaying, ambientLighting, currentSong?.energy, currentSong?.tempo])
 
   if (!ambientLighting) return null
 
   return (
     <div
       aria-hidden="true"
-      className="fixed inset-0 pointer-events-none overflow-hidden z-0 select-none transition-opacity duration-700 ease-out"
+      className="fixed inset-0 pointer-events-none overflow-hidden z-0 select-none transition-opacity duration-1000 ease-out"
       style={{
         opacity: glowOpacity,
         filter: `hue-rotate(${vibeHueShift}deg)`,
