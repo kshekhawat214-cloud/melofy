@@ -1,4 +1,4 @@
-// Dynamic mood color palette tailored for Spotify dark mode aesthetic & Liquid Glass Ambient Lighting
+// Dynamic RGB Mood & Vibe Palette System for Next-Gen Ambient Lighting & Motion Graphics
 export interface ColorTone {
   primary: string
   secondary: string
@@ -7,6 +7,130 @@ export interface ColorTone {
   secondaryGlowRgba: string
   bgFrom: string
   bgMesh: string
+}
+
+export interface RgbVibe {
+  id: string
+  name: string
+  description: string
+  primary: string
+  secondary: string
+  accent: string
+  neonHighlight: string
+  rgbPalette: string[] // multi-zone perimeter cycle
+  lightingStyle: "laser_strobe" | "aurora_stream" | "heavy_bass_pulse" | "amber_embers" | "prism_chromatic"
+  particleType: "sparks" | "glow" | "embers" | "starlight" | "nebula"
+  bassShockwaveColor: string
+  vocalAuraColor: string
+  trebleSparkColor: string
+}
+
+export const RGB_VIBE_PRESETS: Record<string, RgbVibe> = {
+  cyberpunk: {
+    id: "cyberpunk",
+    name: "Cyberpunk Neon",
+    description: "High-voltage magenta, electric cyan, and sub-bass lasers",
+    primary: "#ff007f",
+    secondary: "#00f0ff",
+    accent: "#ffe600",
+    neonHighlight: "#00f0ff",
+    rgbPalette: ["#ff007f", "#7928ca", "#00f0ff", "#00ff66", "#ffe600"],
+    lightingStyle: "laser_strobe",
+    particleType: "sparks",
+    bassShockwaveColor: "#ff007f",
+    vocalAuraColor: "#00f0ff",
+    trebleSparkColor: "#ffe600",
+  },
+  synthwave: {
+    id: "synthwave",
+    name: "Sunset Synthwave",
+    description: "Retro violet, tropical orange, and neon pink horizon",
+    primary: "#ec4899",
+    secondary: "#f97316",
+    accent: "#8b5cf6",
+    neonHighlight: "#f43f5e",
+    rgbPalette: ["#ec4899", "#8b5cf6", "#3b82f6", "#f97316", "#fbbf24"],
+    lightingStyle: "prism_chromatic",
+    particleType: "glow",
+    bassShockwaveColor: "#ec4899",
+    vocalAuraColor: "#8b5cf6",
+    trebleSparkColor: "#f97316",
+  },
+  trap_gold: {
+    id: "trap_gold",
+    name: "Golden Trap & Bass",
+    description: "Sub-woofer crimson, 24k gold flashes, and dark shadow-fall",
+    primary: "#e11d48",
+    secondary: "#eab308",
+    accent: "#f43f5e",
+    neonHighlight: "#ffd700",
+    rgbPalette: ["#e11d48", "#f59e0b", "#dc2626", "#fbbf24", "#7f1d1d"],
+    lightingStyle: "heavy_bass_pulse",
+    particleType: "embers",
+    bassShockwaveColor: "#e11d48",
+    vocalAuraColor: "#eab308",
+    trebleSparkColor: "#ffd700",
+  },
+  cosmic_aurora: {
+    id: "cosmic_aurora",
+    name: "Cosmic Aurora",
+    description: "Deep space indigo, emerald ribbon waves, and stardust",
+    primary: "#10b981",
+    secondary: "#6366f1",
+    accent: "#06b6d4",
+    neonHighlight: "#34d399",
+    rgbPalette: ["#10b981", "#06b6d4", "#6366f1", "#a855f7", "#3b82f6"],
+    lightingStyle: "aurora_stream",
+    particleType: "starlight",
+    bassShockwaveColor: "#10b981",
+    vocalAuraColor: "#6366f1",
+    trebleSparkColor: "#06b6d4",
+  },
+  warm_amber: {
+    id: "warm_amber",
+    name: "Warm Sunset & Acoustic",
+    description: "Analog tube-amp amber, honey glow, and floating candle embers",
+    primary: "#d97706",
+    secondary: "#ea580c",
+    accent: "#fbbf24",
+    neonHighlight: "#f59e0b",
+    rgbPalette: ["#d97706", "#ea580c", "#f59e0b", "#b45309", "#fcd34d"],
+    lightingStyle: "amber_embers",
+    particleType: "embers",
+    bassShockwaveColor: "#d97706",
+    vocalAuraColor: "#f59e0b",
+    trebleSparkColor: "#fbbf24",
+  },
+  chroma_rainbow: {
+    id: "chroma_rainbow",
+    name: "RGB Chroma Flow",
+    description: "Full-spectrum 360° fluid rainbow sweep across all zones",
+    primary: "#8b5cf6",
+    secondary: "#06b6d4",
+    accent: "#ec4899",
+    neonHighlight: "#22c55e",
+    rgbPalette: ["#ff0055", "#ff7700", "#ffee00", "#00ff66", "#00f0ff", "#7928ca"],
+    lightingStyle: "prism_chromatic",
+    particleType: "sparks",
+    bassShockwaveColor: "#ff0055",
+    vocalAuraColor: "#00f0ff",
+    trebleSparkColor: "#ffee00",
+  },
+  midnight_velvet: {
+    id: "midnight_velvet",
+    name: "Midnight R&B Velvet",
+    description: "Sensual ultraviolet, rose gold, and champagne haze",
+    primary: "#7c3aed",
+    secondary: "#db2777",
+    accent: "#f472b6",
+    neonHighlight: "#c084fc",
+    rgbPalette: ["#7c3aed", "#db2777", "#a855f7", "#f472b6", "#4f46e5"],
+    lightingStyle: "aurora_stream",
+    particleType: "glow",
+    bassShockwaveColor: "#7c3aed",
+    vocalAuraColor: "#db2777",
+    trebleSparkColor: "#f472b6",
+  },
 }
 
 const PRESET_PALETTE: ColorTone[] = [
@@ -82,24 +206,6 @@ const PRESET_PALETTE: ColorTone[] = [
     bgFrom: "from-fuchsia-900/70",
     bgMesh: "radial-gradient(at 0% 0%, rgba(192, 38, 211, 0.35) 0px, transparent 50%), radial-gradient(at 100% 100%, rgba(217, 70, 239, 0.25) 0px, transparent 50%)",
   },
-  {
-    primary: "#ea580c",
-    secondary: "#f97316",
-    accent: "#fb923c",
-    glowRgba: "rgba(234, 88, 12, 0.45)",
-    secondaryGlowRgba: "rgba(249, 115, 22, 0.35)",
-    bgFrom: "from-orange-900/70",
-    bgMesh: "radial-gradient(at 0% 0%, rgba(234, 88, 12, 0.35) 0px, transparent 50%), radial-gradient(at 100% 100%, rgba(249, 115, 22, 0.25) 0px, transparent 50%)",
-  },
-  {
-    primary: "#0d9488",
-    secondary: "#14b8a6",
-    accent: "#2dd4bf",
-    glowRgba: "rgba(13, 148, 136, 0.45)",
-    secondaryGlowRgba: "rgba(20, 184, 166, 0.35)",
-    bgFrom: "from-teal-900/70",
-    bgMesh: "radial-gradient(at 0% 0%, rgba(13, 148, 136, 0.35) 0px, transparent 50%), radial-gradient(at 100% 100%, rgba(20, 184, 166, 0.25) 0px, transparent 50%)",
-  },
 ]
 
 export function getSongMoodColor(identifier?: string): ColorTone {
@@ -113,4 +219,109 @@ export function getSongMoodColor(identifier?: string): ColorTone {
   
   const index = Math.abs(hash) % PRESET_PALETTE.length
   return PRESET_PALETTE[index]
+}
+
+/**
+ * Intelligent RGB Vibe matching: Inspects title, artist, genre, energy, and tempo
+ * to return a curated, high-end RGB lighting profile.
+ */
+export function getSongRgbVibe(
+  titleOrId?: string,
+  artist?: string,
+  genre?: string,
+  energy?: number
+): RgbVibe {
+  const text = `${titleOrId || ""} ${artist || ""} ${genre || ""}`.toLowerCase()
+
+  // 1. Electronic / Club / Cyberpunk / EDM
+  if (
+    text.includes("edm") ||
+    text.includes("club") ||
+    text.includes("electronic") ||
+    text.includes("techno") ||
+    text.includes("dance") ||
+    text.includes("remix") ||
+    text.includes("rave") ||
+    text.includes("party") ||
+    text.includes("bass")
+  ) {
+    return RGB_VIBE_PRESETS.cyberpunk
+  }
+
+  // 2. Hip-Hop / Rap / Trap / Drill
+  if (
+    text.includes("hip hop") ||
+    text.includes("hiphop") ||
+    text.includes("rap") ||
+    text.includes("trap") ||
+    text.includes("drill") ||
+    text.includes("dhurandhar") ||
+    text.includes("revenge")
+  ) {
+    return RGB_VIBE_PRESETS.trap_gold
+  }
+
+  // 3. Synthwave / 80s / Retro / Pop
+  if (
+    text.includes("synth") ||
+    text.includes("retro") ||
+    text.includes("future") ||
+    text.includes("training") ||
+    text.includes("pop") ||
+    text.includes("dua")
+  ) {
+    return RGB_VIBE_PRESETS.synthwave
+  }
+
+  // 4. Acoustic / Classical / Folk / Cozy
+  if (
+    text.includes("acoustic") ||
+    text.includes("guitar") ||
+    text.includes("piano") ||
+    text.includes("coffee") ||
+    text.includes("candle") ||
+    text.includes("unplugged")
+  ) {
+    return RGB_VIBE_PRESETS.warm_amber
+  }
+
+  // 5. Indie / Dream / Lo-Fi / Ambient
+  if (
+    text.includes("lofi") ||
+    text.includes("lo-fi") ||
+    text.includes("indie") ||
+    text.includes("chill") ||
+    text.includes("dream") ||
+    text.includes("night") ||
+    text.includes("sleep")
+  ) {
+    return RGB_VIBE_PRESETS.cosmic_aurora
+  }
+
+  // 6. R&B / Soul / Romantic / Velvet
+  if (
+    text.includes("r&b") ||
+    text.includes("rnb") ||
+    text.includes("soul") ||
+    text.includes("romantic") ||
+    text.includes("love") ||
+    text.includes("slow")
+  ) {
+    return RGB_VIBE_PRESETS.midnight_velvet
+  }
+
+  // High energy fallback
+  if (energy !== undefined && energy > 0.8) {
+    return RGB_VIBE_PRESETS.chroma_rainbow
+  }
+
+  // Default hash selection among the presets
+  const presetKeys = Object.keys(RGB_VIBE_PRESETS)
+  let hash = 0
+  for (let i = 0; i < (titleOrId || "pop").length; i++) {
+    hash = (hash << 5) - hash + (titleOrId || "pop").charCodeAt(i)
+    hash |= 0
+  }
+  const selectedKey = presetKeys[Math.abs(hash) % presetKeys.length]
+  return RGB_VIBE_PRESETS[selectedKey]
 }

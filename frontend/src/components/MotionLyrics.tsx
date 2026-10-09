@@ -2,11 +2,10 @@
 import React, { useEffect, useState, useRef, useMemo, useCallback } from "react"
 import { usePlayerStore } from "@/store/playerStore"
 import { API_BASE, getSongCover } from "@/lib/api"
-import { getSongMoodColor } from "@/lib/colors"
+import { getSongRgbVibe, RgbVibe } from "@/lib/colors"
 import { audioDsp } from "@/lib/audioDsp"
 import {
   X,
-  Mic2,
   Sparkles,
   Play,
   Pause,
@@ -17,8 +16,9 @@ import {
   Shuffle,
   Repeat,
   Repeat1,
-  Eye,
-  EyeOff,
+  FileText,
+  Activity,
+  Sliders,
 } from "lucide-react"
 
 interface LyricLine {
@@ -28,29 +28,6 @@ interface LyricLine {
 
 function splitWords(text: string): string[] {
   return text.split(/\s+/).filter((w) => w.length > 0)
-}
-
-function hexToHSL(hex: string): { h: number; s: number; l: number } {
-  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex)
-  if (!result) return { h: 200, s: 70, l: 50 }
-  const r = parseInt(result[1], 16) / 255
-  const g = parseInt(result[2], 16) / 255
-  const b = parseInt(result[3], 16) / 255
-  const max = Math.max(r, g, b)
-  const min = Math.min(r, g, b)
-  let h = 0
-  let s = 0
-  const l = (max + min) / 2
-  if (max !== min) {
-    const d = max - min
-    s = l > 0.5 ? d / (2 - max - min) : d / (max + min)
-    switch (max) {
-      case r: h = ((g - b) / d + (g < b ? 6 : 0)) / 6; break
-      case g: h = ((b - r) / d + 2) / 6; break
-      case b: h = ((r - g) / d + 4) / 6; break
-    }
-  }
-  return { h: Math.round(h * 360), s: Math.round(s * 100), l: Math.round(l * 100) }
 }
 
 function formatTime(seconds: number): string {
@@ -87,19 +64,26 @@ export default function MotionLyrics() {
   const [currentLineIndex, setCurrentLineIndex] = useState(-1)
   const [audioEnergy, setAudioEnergy] = useState({ bass: 0, mid: 0, treble: 0, overall: 0 })
   const [isControlsVisible, setIsControlsVisible] = useState(true)
-  const [isLyricsVisible, setIsLyricsVisible] = useState(true)
+  const [showFullTranscript, setShowFullTranscript] = useState(false)
   const [isScrubbing, setIsScrubbing] = useState(false)
   const [scrubValue, setScrubValue] = useState(0)
 
-  const containerRef = useRef<HTMLDivElement>(null)
+  // Motion Graphics Key state: track phrase change to trigger fresh kinetic entry
+  const [activePhraseKey, setActivePhraseKey] = useState(0)
+  const prevLineIndexRef = useRef(-1)
+
   const animFrameRef = useRef<number | null>(null)
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
-  const mood = useMemo(() => {
-    return getSongMoodColor(currentSong?.title || currentSong?.genre || "pop")
-  }, [currentSong?.id, currentSong?.title, currentSong?.genre])
-
-  const hsl = useMemo(() => hexToHSL(mood.primary), [mood.primary])
+  // Dynamic RGB Vibe for motion typography glow and chromatic styling
+  const vibe = useMemo(() => {
+    return getSongRgbVibe(
+      currentSong?.title,
+      currentSong?.artist,
+      currentSong?.genre,
+      currentSong?.energy
+    )
+  }, [currentSong?.id, currentSong?.title, currentSong?.artist, currentSong?.genre, currentSong?.energy])
 
   // ─── Auto-hide controls after inactivity ─────────────────────
   const resetControlsTimeout = useCallback(() => {
@@ -222,17 +206,17 @@ export default function MotionLyrics() {
     }
   }, [currentSong?.id, currentSong?.lyricsLrc, currentSong?.title, isImmersiveVisualizerOpen])
 
-  // ─── Audio Reactivity Loop ──────────────────────────────────
+  // ─── Real-Time Audio Dynamics Loop ──────────────────────────
   useEffect(() => {
     if (!isImmersiveVisualizerOpen) return
 
     const update = () => {
       const data = audioDsp.getReactivityData()
       setAudioEnergy((prev) => ({
-        bass: prev.bass + (data.bassLevel - prev.bass) * 0.15,
-        mid: prev.mid + (data.midLevel - prev.mid) * 0.12,
-        treble: prev.treble + (data.trebleLevel - prev.treble) * 0.15,
-        overall: prev.overall + (data.overallLevel - prev.overall) * 0.12,
+        bass: prev.bass + (data.bassLevel - prev.bass) * 0.18,
+        mid: prev.mid + (data.midLevel - prev.mid) * 0.14,
+        treble: prev.treble + (data.trebleLevel - prev.treble) * 0.16,
+        overall: prev.overall + (data.overallLevel - prev.overall) * 0.14,
       }))
       animFrameRef.current = requestAnimationFrame(update)
     }
@@ -243,7 +227,7 @@ export default function MotionLyrics() {
     }
   }, [isImmersiveVisualizerOpen])
 
-  // ─── Sync with audio time ───────────────────────────────────
+  // ─── Sync with Audio Time & Detect Phrase Shifts ────────────
   useEffect(() => {
     const audio = document.querySelector("audio")
     if (!audio || lyrics.length === 0) return
@@ -258,22 +242,17 @@ export default function MotionLyrics() {
           break
         }
       }
-      setCurrentLineIndex(index)
+
+      if (index !== prevLineIndexRef.current) {
+        prevLineIndexRef.current = index
+        setCurrentLineIndex(index)
+        setActivePhraseKey((k) => k + 1)
+      }
     }
 
     audio.addEventListener("timeupdate", handleTimeUpdate)
     return () => audio.removeEventListener("timeupdate", handleTimeUpdate)
   }, [lyrics])
-
-  // ─── Auto-scroll active line ────────────────────────────────
-  useEffect(() => {
-    if (currentLineIndex !== -1 && containerRef.current && isLyricsVisible) {
-      const activeElement = containerRef.current.querySelector(`[data-lyric-index="${currentLineIndex}"]`) as HTMLElement
-      if (activeElement) {
-        activeElement.scrollIntoView({ behavior: "smooth", block: "center" })
-      }
-    }
-  }, [currentLineIndex, isLyricsVisible])
 
   // ─── Keyboard Controls ──────────────────────────────────────
   useEffect(() => {
@@ -281,7 +260,11 @@ export default function MotionLyrics() {
     const handleKeyDown = (e: KeyboardEvent) => {
       resetControlsTimeout()
       if (e.key === "Escape") {
-        toggleImmersiveVisualizer()
+        if (showFullTranscript) {
+          setShowFullTranscript(false)
+        } else {
+          toggleImmersiveVisualizer()
+        }
       } else if (e.code === "Space") {
         e.preventDefault()
         togglePlay()
@@ -305,9 +288,9 @@ export default function MotionLyrics() {
     }
     window.addEventListener("keydown", handleKeyDown)
     return () => window.removeEventListener("keydown", handleKeyDown)
-  }, [isImmersiveVisualizerOpen, toggleImmersiveVisualizer, togglePlay, setProgress, resetControlsTimeout])
+  }, [isImmersiveVisualizerOpen, showFullTranscript, toggleImmersiveVisualizer, togglePlay, setProgress, resetControlsTimeout])
 
-  // ─── Click-to-Seek from Lyrics ──────────────────────────────
+  // ─── Seek Handling ──────────────────────────────────────────
   const handleSeekToLine = (time: number) => {
     if (time < 0) return
     const audio = document.querySelector("audio")
@@ -318,16 +301,15 @@ export default function MotionLyrics() {
         audio.play().catch(() => {})
       }
     }
+    setShowFullTranscript(false)
   }
 
-  // ─── Progress Bar Scrubbing ─────────────────────────────────
   const currentPos = isScrubbing ? scrubValue : progress
   const safeDuration = duration > 0 ? duration : currentSong?.duration || 1
   const progressPercent = Math.min(100, Math.max(0, (currentPos / safeDuration) * 100))
 
   const handleSeekChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = parseFloat(e.target.value)
-    setScrubValue(val)
+    setScrubValue(parseFloat(e.target.value))
   }
 
   const handleSeekCommit = () => {
@@ -341,23 +323,38 @@ export default function MotionLyrics() {
 
   if (!isImmersiveVisualizerOpen) return null
 
+  // ─── Active Phrases for Kinetic Typography ──────────────────
+  const activeLine = currentLineIndex >= 0 ? lyrics[currentLineIndex] : null
+  const prevLine = currentLineIndex > 0 ? lyrics[currentLineIndex - 1] : null
+  const nextLine = currentLineIndex + 1 < lyrics.length ? lyrics[currentLineIndex + 1] : null
+
+  const activeWords = activeLine ? splitWords(activeLine.text) : []
+  const activeDuration =
+    currentLineIndex >= 0 && currentLineIndex + 1 < lyrics.length && lyrics[currentLineIndex + 1].time > 0 && activeLine?.time && activeLine.time > 0
+      ? Math.max(0.6, lyrics[currentLineIndex + 1].time - activeLine.time)
+      : 3.2
+
+  // Spring-bounce dynamics for typography driven by bass kicks
+  const bassBounceScale = 1.0 + audioEnergy.bass * 0.08
+  const bassBounceY = -audioEnergy.bass * 12
+
   return (
     <div
       className={`fixed inset-0 z-[200] flex flex-col items-center justify-between pointer-events-auto select-none transition-colors duration-700 ${
         isControlsVisible ? "cursor-default" : "cursor-none"
       }`}
     >
-      {/* ─── Top Header: Track info + controls ─── */}
+      {/* ─── Top Header Overlay ─── */}
       <div
         className={`w-full z-20 flex items-center justify-between p-6 md:p-8 transition-all duration-500 ${
           isControlsVisible ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-6 pointer-events-none"
         }`}
         style={{
-          background: "linear-gradient(to bottom, rgba(0,0,0,0.7) 0%, transparent 100%)",
+          background: "linear-gradient(to bottom, rgba(0,0,0,0.85) 0%, transparent 100%)",
         }}
       >
         <div className="flex items-center space-x-4 min-w-0">
-          <div className="w-12 h-12 md:w-16 md:h-16 rounded-xl overflow-hidden shadow-2xl flex-shrink-0 border border-white/15 bg-[#181818]">
+          <div className="w-12 h-12 md:w-16 md:h-16 rounded-xl overflow-hidden shadow-2xl flex-shrink-0 border border-white/20 bg-[#181818]">
             <img
               src={getSongCover(currentSong, 300)}
               className="w-full h-full object-cover"
@@ -378,132 +375,203 @@ export default function MotionLyrics() {
         </div>
 
         <div className="flex items-center space-x-3 flex-shrink-0">
+          {/* Vibe Badge */}
           <div className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/10 backdrop-blur-md border border-white/20 text-xs text-white/90">
-            <Sparkles size={14} className="text-emerald-400 animate-pulse" />
-            <span>Ambient Light Show</span>
+            <Sparkles size={14} className="text-fuchsia-400 animate-pulse" />
+            <span className="font-semibold">{vibe.name}</span>
           </div>
-          <button
-            onClick={() => setIsLyricsVisible(!isLyricsVisible)}
-            className={`p-2.5 rounded-full transition-all backdrop-blur-md border border-white/10 cursor-pointer ${
-              isLyricsVisible ? "bg-white/20 text-white" : "bg-white/5 text-white/50 hover:text-white"
-            }`}
-            title={isLyricsVisible ? "Hide Lyrics (Pure Visualizer)" : "Show Lyrics"}
-          >
-            {isLyricsVisible ? <Eye size={20} /> : <EyeOff size={20} />}
-          </button>
+
+          {/* Full Transcript Sheet Toggle */}
+          {lyrics.length > 0 && (
+            <button
+              onClick={() => setShowFullTranscript(!showFullTranscript)}
+              className={`p-2.5 rounded-full transition-all backdrop-blur-md border border-white/15 cursor-pointer ${
+                showFullTranscript ? "bg-white/25 text-white" : "bg-white/10 text-white/70 hover:text-white"
+              }`}
+              title={showFullTranscript ? "Back to Motion Graphics" : "View Full Lyric Sheet"}
+            >
+              <FileText size={19} />
+            </button>
+          )}
+
+          {/* Close Visualizer */}
           <button
             onClick={toggleImmersiveVisualizer}
-            className="p-2.5 bg-white/10 hover:bg-white/20 rounded-full text-white transition-all backdrop-blur-md border border-white/10 cursor-pointer"
-            title="Close (Esc)"
+            className="p-2.5 bg-white/10 hover:bg-white/20 rounded-full text-white transition-all backdrop-blur-md border border-white/15 cursor-pointer"
+            title="Exit (Esc)"
           >
             <X size={20} />
           </button>
         </div>
       </div>
 
-      {/* ─── Central Stage: Kinetic Motion Lyrics ─── */}
-      <div
-        ref={containerRef}
-        className={`relative z-10 w-full max-w-4xl px-8 md:px-16 overflow-hidden flex flex-col items-center justify-center transition-all duration-700 ${
-          isLyricsVisible ? "opacity-100" : "opacity-0 pointer-events-none"
-        }`}
-        style={{ height: "65vh" }}
-      >
+      {/* ─── CENTER STAGE: TRUE KINETIC MOTION GRAPHICS TYPOGRAPHY ─── */}
+      <div className="relative z-10 w-full max-w-5xl px-6 md:px-12 flex-1 flex flex-col items-center justify-center text-center overflow-hidden">
         {isLoading ? (
           <div className="flex flex-col items-center space-y-4">
-            <div className="w-14 h-14 rounded-full border-2 border-emerald-500/30 border-t-emerald-400 animate-spin" />
-            <p className="text-lg font-medium text-white/60">Loading synced lyrics...</p>
+            <div className="w-14 h-14 rounded-full border-2 border-fuchsia-500/30 border-t-fuchsia-400 animate-spin" />
+            <p className="text-lg font-medium text-white/60">Aligning kinetic typography...</p>
           </div>
-        ) : lyrics.length > 0 ? (
+        ) : activeLine ? (
           <div
-            className="flex flex-col items-center space-y-1 md:space-y-3 overflow-y-auto no-scrollbar py-8 w-full"
-            style={{ maxHeight: "65vh" }}
+            className="flex flex-col items-center justify-center space-y-6 md:space-y-8 w-full select-none"
+            style={{ perspective: "1000px" }}
           >
-            <div style={{ height: "28vh" }} />
-            {lyrics.map((line, i) => {
-              const isActive = i === currentLineIndex
-              const isPast = currentLineIndex !== -1 && i < currentLineIndex
-              const distFromActive = Math.abs(i - currentLineIndex)
+            {/* 1. Gracefully Exiting Previous Phrase (3D Depth Fade) */}
+            {prevLine && (
+              <div
+                key={`prev-${currentLineIndex}`}
+                className="opacity-30 text-lg sm:text-2xl md:text-3xl font-semibold text-white/40 tracking-tight transition-all duration-700 select-none"
+                style={{
+                  transform: "perspective(1000px) translateZ(-60px) translateY(-10px) scale(0.9)",
+                  filter: "blur(2px)",
+                }}
+              >
+                {prevLine.text}
+              </div>
+            )}
 
-              const words = splitWords(line.text)
-              const lineDuration =
-                i + 1 < lyrics.length && lyrics[i + 1].time > 0 && line.time > 0
-                  ? Math.max(0.5, lyrics[i + 1].time - line.time)
-                  : 3
+            {/* 2. HERO ACTIVE PHRASE — Explosive Motion Graphics Arrival */}
+            <div
+              key={`active-hero-${activePhraseKey}`}
+              className="w-full flex flex-wrap justify-center items-center gap-x-3 md:gap-x-5 gap-y-2 py-4"
+              style={{
+                animationName: "kineticPhraseEnter",
+                animationDuration: "0.55s",
+                animationTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)",
+                animationFillMode: "both",
+                transform: `scale(${bassBounceScale}) translateY(${bassBounceY}px)`,
+                transition: "transform 0.12s ease-out",
+              }}
+            >
+              {activeWords.map((word, wi) => {
+                const wordStagger = (wi / Math.max(1, activeWords.length)) * Math.min(activeDuration * 0.6, 1.4)
+                return (
+                  <span
+                    key={wi}
+                    className="inline-block text-3xl sm:text-5xl md:text-6xl lg:text-7xl xl:text-8xl font-black text-white tracking-tight"
+                    style={{
+                      animationName: "lyricWordReveal",
+                      animationDuration: "0.5s",
+                      animationDelay: `${wordStagger}s`,
+                      animationFillMode: "both",
+                      animationTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)",
+                      textShadow: `0 0 ${20 + audioEnergy.bass * 45}px ${vibe.primary},
+                                   0 0 ${50 + audioEnergy.overall * 80}px ${vibe.neonHighlight},
+                                   0 4px 20px rgba(0,0,0,0.8)`,
+                    }}
+                  >
+                    {word}
+                  </span>
+                )
+              })}
+            </div>
 
-              const glowIntensity = isActive ? 0.35 + audioEnergy.overall * 0.65 : 0
-              const scaleBoost = isActive ? 1.0 + audioEnergy.bass * 0.08 : 1.0
-              const distOpacity = isActive ? 1 : Math.max(0.08, 0.6 - distFromActive * 0.12)
+            {/* 3. Audio-Reactive Kinetic Soundwave Bars beneath the active lyric */}
+            <div className="flex items-center gap-1.5 h-6">
+              {[...Array(16)].map((_, barIdx) => {
+                const barHeight = Math.max(
+                  4,
+                  (barIdx % 2 === 0 ? audioEnergy.bass : audioEnergy.treble) * 24 +
+                    Math.sin(barIdx * 0.5 + progress * 5) * 6
+                )
+                return (
+                  <div
+                    key={barIdx}
+                    className="w-1 md:w-1.5 rounded-full transition-all duration-75"
+                    style={{
+                      height: `${barHeight}px`,
+                      backgroundColor: barIdx % 3 === 0 ? vibe.neonHighlight : vibe.primary,
+                      boxShadow: `0 0 8px ${vibe.primary}`,
+                    }}
+                  />
+                )
+              })}
+            </div>
 
-              return (
-                <div
-                  key={i}
-                  data-lyric-index={i}
-                  onClick={() => handleSeekToLine(line.time)}
-                  className="text-center cursor-pointer transition-all duration-500 ease-out group px-4 py-1.5 md:py-2.5"
-                  style={{
-                    transform: `scale(${isActive ? scaleBoost : isPast ? 0.92 : 0.95})`,
-                    opacity: distOpacity,
-                    filter: isActive
-                      ? `drop-shadow(0 0 ${20 + audioEnergy.overall * 40}px hsla(${hsl.h}, 85%, 60%, ${glowIntensity}))`
-                      : "none",
-                    transition: "all 0.5s cubic-bezier(0.16, 1, 0.3, 1)",
-                  }}
-                >
-                  {isActive && line.time >= 0 ? (
-                    <div className="flex flex-wrap justify-center gap-x-2 md:gap-x-3.5">
-                      {words.map((word, wi) => {
-                        const wordDelay = (wi / Math.max(1, words.length)) * Math.min(lineDuration * 0.6, 1.5)
-                        return (
-                          <span
-                            key={wi}
-                            className="inline-block text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-black text-white tracking-tight"
-                            style={{
-                              animationName: "lyricWordReveal",
-                              animationDuration: "0.6s",
-                              animationDelay: `${wordDelay}s`,
-                              animationFillMode: "both",
-                              animationTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)",
-                              textShadow: `0 0 ${15 + audioEnergy.bass * 35}px hsla(${hsl.h}, 85%, 60%, ${
-                                0.35 + audioEnergy.overall * 0.55
-                              }), 0 0 ${45 + audioEnergy.overall * 65}px hsla(${hsl.h}, 70%, 50%, ${
-                                0.2 + audioEnergy.bass * 0.3
-                              })`,
-                            }}
-                          >
-                            {word}
-                          </span>
-                        )
-                      })}
-                    </div>
-                  ) : (
-                    <span
-                      className={`text-xl sm:text-2xl md:text-3xl lg:text-4xl font-bold transition-all duration-500 ${
-                        isPast
-                          ? "text-white/30 group-hover:text-white/60"
-                          : "text-white/20 group-hover:text-white/50"
-                      } ${line.time === -1 ? "text-base sm:text-lg md:text-xl font-medium" : ""}`}
-                    >
-                      {line.text}
-                    </span>
-                  )}
-                </div>
-              )
-            })}
-            <div style={{ height: "32vh" }} />
+            {/* 4. Upcoming Phrase Anticipation Preview (Floats gently below) */}
+            {nextLine && (
+              <div
+                key={`next-${currentLineIndex}`}
+                className="opacity-35 text-base sm:text-xl md:text-2xl font-medium text-white/50 tracking-tight transition-all duration-700 select-none mt-2"
+                style={{
+                  transform: "perspective(1000px) translateY(12px) scale(0.92)",
+                  filter: "blur(1.5px)",
+                }}
+              >
+                {nextLine.text}
+              </div>
+            )}
           </div>
         ) : (
-          <div className="flex flex-col items-center space-y-4 text-center">
-            <div className="w-20 h-20 rounded-full bg-white/10 flex items-center justify-center text-white/30">
-              <Mic2 size={40} />
+          /* ─── Instrumental Section / Intro / Drop Kinetic Stage ─── */
+          <div className="flex flex-col items-center space-y-6 text-center select-none animate-in fade-in zoom-in duration-500">
+            <div
+              className="w-24 h-24 md:w-32 md:h-32 rounded-3xl bg-white/10 backdrop-blur-xl border border-white/20 flex items-center justify-center shadow-2xl relative"
+              style={{
+                transform: `scale(${1 + audioEnergy.bass * 0.15})`,
+                boxShadow: `0 0 ${30 + audioEnergy.bass * 60}px ${vibe.primary}`,
+              }}
+            >
+              <Activity size={48} className="text-white animate-pulse" />
+              <div
+                className="absolute inset-0 rounded-3xl border border-white/40 animate-ping opacity-30"
+                style={{ borderColor: vibe.neonHighlight }}
+              />
             </div>
-            <h3 className="text-2xl font-bold text-white/80">Visualizer Active</h3>
-            <p className="text-sm text-white/50 max-w-sm">
-              Lyrics are unavailable for &ldquo;{currentSong?.title}&rdquo;. Relax and immerse in the audio-reactive light show!
-            </p>
+
+            <div className="space-y-2 max-w-lg">
+              <span className="text-xs uppercase tracking-widest font-black text-fuchsia-400 bg-fuchsia-500/20 px-3 py-1 rounded-full border border-fuchsia-500/30">
+                Live Dynamic Audio
+              </span>
+              <h3 className="text-2xl sm:text-4xl font-black text-white tracking-tight drop-shadow-xl">
+                Instrumental Section
+              </h3>
+              <p className="text-sm sm:text-base text-white/60">
+                Immerse in the audio-reactive light show. Kinetic lyrics will arrive as the vocals enter.
+              </p>
+            </div>
           </div>
         )}
       </div>
+
+      {/* ─── Slide-Up Full Transcript Drawer (Optional on-demand view) ─── */}
+      {showFullTranscript && (
+        <div className="absolute inset-x-0 bottom-28 top-24 z-30 mx-auto max-w-2xl px-6 animate-in slide-in-from-bottom duration-300">
+          <div className="h-full rounded-2xl bg-black/85 backdrop-blur-2xl border border-white/20 shadow-2xl flex flex-col overflow-hidden">
+            <div className="p-4 border-b border-white/10 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <FileText size={17} className="text-fuchsia-400" />
+                <span className="text-sm font-bold text-white">Full Lyrics Transcript</span>
+              </div>
+              <button
+                onClick={() => setShowFullTranscript(false)}
+                className="p-1 rounded-full text-white/70 hover:text-white hover:bg-white/10"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-3 no-scrollbar">
+              {lyrics.map((line, i) => {
+                const isCur = i === currentLineIndex
+                return (
+                  <div
+                    key={i}
+                    onClick={() => handleSeekToLine(line.time)}
+                    className={`p-2.5 rounded-xl cursor-pointer text-sm font-medium transition-all ${
+                      isCur
+                        ? "bg-fuchsia-600/30 text-white font-bold border border-fuchsia-500/40 shadow-lg"
+                        : "text-white/60 hover:text-white hover:bg-white/10"
+                    }`}
+                  >
+                    {line.text}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ─── Bottom Floating Liquid-Glass Playback Dock ─── */}
       <div
@@ -511,8 +579,8 @@ export default function MotionLyrics() {
           isControlsVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8 pointer-events-none"
         }`}
       >
-        <div className="rounded-2xl bg-black/40 backdrop-blur-2xl border border-white/15 p-4 md:p-5 shadow-2xl flex flex-col gap-3">
-          {/* Progress Scrubber */}
+        <div className="rounded-2xl bg-black/60 backdrop-blur-2xl border border-white/15 p-4 md:p-5 shadow-2xl flex flex-col gap-3">
+          {/* Progress Bar Scrubber */}
           <div className="flex items-center gap-3 text-xs text-white/70 font-mono">
             <span>{formatTime(currentPos)}</span>
             <div className="relative flex-1 flex items-center group">
@@ -521,8 +589,8 @@ export default function MotionLyrics() {
                   className="h-full rounded-full transition-all"
                   style={{
                     width: `${progressPercent}%`,
-                    backgroundColor: mood.primary,
-                    boxShadow: `0 0 10px ${mood.primary}`,
+                    backgroundColor: vibe.primary,
+                    boxShadow: `0 0 12px ${vibe.neonHighlight}`,
                   }}
                 />
               </div>
@@ -586,7 +654,7 @@ export default function MotionLyrics() {
                 onClick={togglePlay}
                 className="p-3.5 rounded-full bg-white text-black hover:scale-108 active:scale-95 transition-all shadow-xl cursor-pointer"
                 style={{
-                  boxShadow: `0 0 ${16 + audioEnergy.bass * 30}px ${mood.primary}`,
+                  boxShadow: `0 0 ${16 + audioEnergy.bass * 35}px ${vibe.primary}`,
                 }}
                 title={isPlaying ? "Pause" : "Play"}
               >
@@ -618,7 +686,7 @@ export default function MotionLyrics() {
                   step={0.01}
                   value={isMuted ? 0 : volume}
                   onChange={(e) => setVolume(parseFloat(e.target.value))}
-                  className="w-full h-1 bg-white/20 rounded-full appearance-none cursor-pointer accent-emerald-400"
+                  className="w-full h-1 bg-white/20 rounded-full appearance-none cursor-pointer accent-fuchsia-400"
                 />
               </div>
             </div>

@@ -103,44 +103,86 @@ body {
   animation: aura-pulse 6s ease-in-out infinite;
 }
 
-/* Motion Graphics Lyrics — Per-Word Kinetic Reveal */
+/* ─── Advanced Kinetic Motion Graphics Typography ─────────────── */
+@keyframes kineticPhraseEnter {
+  0% {
+    opacity: 0;
+    transform: perspective(1000px) translateZ(120px) translateY(45px) rotateX(20deg) scale(0.88);
+    filter: blur(12px) brightness(1.8);
+  }
+  60% {
+    opacity: 1;
+    transform: perspective(1000px) translateZ(-10px) translateY(-4px) rotateX(-2deg) scale(1.02);
+    filter: blur(0px) brightness(1.1);
+  }
+  100% {
+    opacity: 1;
+    transform: perspective(1000px) translateZ(0) translateY(0) rotateX(0deg) scale(1);
+    filter: blur(0px) brightness(1);
+  }
+}
+
+@keyframes kineticPhraseExit {
+  0% {
+    opacity: 0.9;
+    transform: perspective(1000px) translateZ(0) translateY(0) scale(1);
+    filter: blur(0px);
+  }
+  100% {
+    opacity: 0;
+    transform: perspective(1000px) translateZ(-150px) translateY(-60px) scale(0.8) rotateX(-15deg);
+    filter: blur(16px);
+  }
+}
+
 @keyframes lyricWordReveal {
   0% {
     opacity: 0;
-    transform: translateY(18px) scale(0.88) rotateX(15deg);
-    filter: blur(6px);
+    transform: perspective(800px) translateY(24px) scale(0.85) rotateX(25deg);
+    filter: blur(8px) brightness(2);
   }
   50% {
-    opacity: 0.85;
-    transform: translateY(-3px) scale(1.04);
-    filter: blur(0px);
+    opacity: 0.95;
+    transform: perspective(800px) translateY(-4px) scale(1.06) rotateX(-3deg);
+    filter: blur(0px) brightness(1.3);
   }
   100% {
     opacity: 1;
-    transform: translateY(0) scale(1);
-    filter: blur(0px);
+    transform: perspective(800px) translateY(0) scale(1) rotateX(0deg);
+    filter: blur(0px) brightness(1);
   }
 }
 
-/* Motion Graphics Lyrics — Line Entrance from Below */
-@keyframes lyricLineEntrance {
+@keyframes neonWordIgnite {
   0% {
-    opacity: 0;
-    transform: translateY(40px) scale(0.9);
+    transform: scale(0.95);
+    filter: brightness(0.8);
+  }
+  40% {
+    transform: scale(1.12);
+    filter: brightness(2.2) drop-shadow(0 0 25px currentColor);
   }
   100% {
-    opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: scale(1.04);
+    filter: brightness(1.4) drop-shadow(0 0 16px currentColor);
   }
 }
 
-/* Motion Graphics Lyrics — Active Line Energy Pulse */
-@keyframes lyricEnergyPulse {
+@keyframes rgbPerimeterGlow {
   0%, 100% {
-    text-shadow: 0 0 20px rgba(255, 255, 255, 0.2), 0 0 60px rgba(29, 185, 84, 0.15);
+    filter: hue-rotate(0deg) brightness(1);
   }
   50% {
-    text-shadow: 0 0 30px rgba(255, 255, 255, 0.4), 0 0 80px rgba(29, 185, 84, 0.3);
+    filter: hue-rotate(60deg) brightness(1.25);
+  }
+}
+
+@keyframes kineticSoundwaveBar {
+  0%, 100% {
+    height: 15%;
+  }
+  50% {
+    height: 100%;
   }
 }
 

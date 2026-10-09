@@ -1,10 +1,10 @@
 "use client"
-import React, { useEffect, useRef, useCallback, useMemo } from "react"
+import React, { useEffect, useRef, useCallback, useMemo, useState } from "react"
 import { usePlayerStore } from "@/store/playerStore"
-import { getSongMoodColor } from "@/lib/colors"
+import { getSongRgbVibe, RGB_VIBE_PRESETS, RgbVibe } from "@/lib/colors"
 import { audioDsp } from "@/lib/audioDsp"
 
-// ─── Particle System ──────────────────────────────────────────
+// ─── Particle Structure ─────────────────────────────────────────
 interface Particle {
   x: number
   y: number
@@ -13,60 +13,30 @@ interface Particle {
   radius: number
   life: number
   maxLife: number
-  hue: number
-  sat: number
-  light: number
+  color: string
   alpha: number
-  type: "glow" | "spark" | "nebula"
+  type: "spark" | "glow" | "ember" | "starlight"
 }
 
-// ─── Aurora Wave ──────────────────────────────────────────────
-interface AuroraWave {
-  offset: number
-  amplitude: number
-  frequency: number
-  speed: number
-  hue: number
+// ─── Volumetric Concert Spotlight Beam ──────────────────────────
+interface SpotlightBeam {
+  originXRatio: number
+  angleOffset: number
+  sweepSpeed: number
+  beamWidth: number
+  colorIndex: number
+  lengthRatio: number
+}
+
+// ─── Shockwave Ring ─────────────────────────────────────────────
+interface Shockwave {
+  x: number
+  y: number
+  radius: number
+  maxRadius: number
+  color: string
   alpha: number
-  thickness: number
-}
-
-// ─── Helper: Parse hex color to HSL ───────────────────────────
-function hexToHSL(hex: string): { h: number; s: number; l: number } {
-  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex)
-  if (!result) return { h: 200, s: 70, l: 50 }
-  const r = parseInt(result[1], 16) / 255
-  const g = parseInt(result[2], 16) / 255
-  const b = parseInt(result[3], 16) / 255
-  const max = Math.max(r, g, b)
-  const min = Math.min(r, g, b)
-  let h = 0
-  let s = 0
-  const l = (max + min) / 2
-  if (max !== min) {
-    const d = max - min
-    s = l > 0.5 ? d / (2 - max - min) : d / (max + min)
-    switch (max) {
-      case r: h = ((g - b) / d + (g < b ? 6 : 0)) / 6; break
-      case g: h = ((b - r) / d + 2) / 6; break
-      case b: h = ((r - g) / d + 4) / 6; break
-    }
-  }
-  return { h: Math.round(h * 360), s: Math.round(s * 100), l: Math.round(l * 100) }
-}
-
-// ─── Smoothed Audio State ─────────────────────────────────────
-interface SmoothedAudio {
-  bass: number
-  mid: number
-  treble: number
-  overall: number
-  bassSmooth: number
-  midSmooth: number
-  trebleSmooth: number
-  overallSmooth: number
-  peakBass: number
-  bassHitCooldown: number
+  lineWidth: number
 }
 
 export default function ImmersiveVisualizer() {
@@ -77,108 +47,125 @@ export default function ImmersiveVisualizer() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const animRef = useRef<number | null>(null)
   const particlesRef = useRef<Particle[]>([])
-  const audioRef = useRef<SmoothedAudio>({
-    bass: 0, mid: 0, treble: 0, overall: 0,
-    bassSmooth: 0, midSmooth: 0, trebleSmooth: 0, overallSmooth: 0,
-    peakBass: 0, bassHitCooldown: 0,
-  })
+  const shockwavesRef = useRef<Shockwave[]>([])
   const timeRef = useRef(0)
   const prevFrameTimeRef = useRef(0)
 
-  const mood = useMemo(() => {
-    return getSongMoodColor(currentSong?.title || currentSong?.genre || "pop")
-  }, [currentSong?.id, currentSong?.title, currentSong?.genre])
+  // Track & Vibe
+  const autoVibe = useMemo(() => {
+    return getSongRgbVibe(
+      currentSong?.title,
+      currentSong?.artist,
+      currentSong?.genre,
+      currentSong?.energy
+    )
+  }, [currentSong?.id, currentSong?.title, currentSong?.artist, currentSong?.genre, currentSong?.energy])
 
-  const hslPrimary = useMemo(() => hexToHSL(mood.primary), [mood.primary])
-  const hslSecondary = useMemo(() => hexToHSL(mood.secondary), [mood.secondary])
-  const hslAccent = useMemo(() => hexToHSL(mood.accent), [mood.accent])
+  // Optional manual vibe override
+  const [selectedVibeKey, setSelectedVibeKey] = useState<string>("auto")
+  const activeVibe: RgbVibe = useMemo(() => {
+    if (selectedVibeKey !== "auto" && RGB_VIBE_PRESETS[selectedVibeKey]) {
+      return RGB_VIBE_PRESETS[selectedVibeKey]
+    }
+    return autoVibe
+  }, [selectedVibeKey, autoVibe])
 
-  // ─── Aurora Waves (pre-computed for this mood) ────────────────
-  const auroraWaves = useMemo<AuroraWave[]>(() => [
-    { offset: 0, amplitude: 80, frequency: 0.003, speed: 0.4, hue: hslPrimary.h, alpha: 0.15, thickness: 120 },
-    { offset: 150, amplitude: 60, frequency: 0.004, speed: -0.3, hue: hslSecondary.h, alpha: 0.12, thickness: 90 },
-    { offset: 280, amplitude: 100, frequency: 0.002, speed: 0.25, hue: hslAccent.h, alpha: 0.10, thickness: 140 },
-    { offset: 400, amplitude: 50, frequency: 0.005, speed: -0.45, hue: (hslPrimary.h + 40) % 360, alpha: 0.08, thickness: 70 },
-  ], [hslPrimary.h, hslSecondary.h, hslAccent.h])
+  // Smoothed audio buffers
+  const audioRef = useRef({
+    bass: 0,
+    mid: 0,
+    treble: 0,
+    overall: 0,
+    bassPeak: 0,
+    bassCooldown: 0,
+  })
 
-  // ─── Spawn Particles ────────────────────────────────────────
+  // ─── Spotlights Configuration ─────────────────────────────────
+  const spotlights = useMemo<SpotlightBeam[]>(() => [
+    { originXRatio: 0.15, angleOffset: 0.35, sweepSpeed: 0.8, beamWidth: 140, colorIndex: 0, lengthRatio: 1.1 },
+    { originXRatio: 0.35, angleOffset: -0.25, sweepSpeed: -0.6, beamWidth: 110, colorIndex: 1, lengthRatio: 1.0 },
+    { originXRatio: 0.65, angleOffset: 0.20, sweepSpeed: 0.7, beamWidth: 120, colorIndex: 2, lengthRatio: 1.0 },
+    { originXRatio: 0.85, angleOffset: -0.40, sweepSpeed: -0.85, beamWidth: 150, colorIndex: 3, lengthRatio: 1.1 },
+  ], [])
+
+  // ─── Particle Spawner ─────────────────────────────────────────
   const spawnParticles = useCallback((
-    w: number, h: number, bass: number, mid: number, treble: number, overall: number
+    w: number,
+    h: number,
+    bass: number,
+    mid: number,
+    treble: number,
+    vibe: RgbVibe
   ) => {
     const particles = particlesRef.current
-    const maxParticles = 300
+    const maxParticles = 240
+    const palette = vibe.rgbPalette
 
-    // Bass-driven glow particles burst upward
-    if (bass > 0.15 && particles.length < maxParticles) {
-      const count = Math.floor(bass * 6)
+    // 1. Bass kick burst
+    if (bass > 0.2 && particles.length < maxParticles) {
+      const count = Math.min(6, Math.floor(bass * 8))
       for (let i = 0; i < count; i++) {
+        const angle = Math.random() * Math.PI * 2
+        const speed = (2 + Math.random() * 6) * bass
         particles.push({
-          x: Math.random() * w,
-          y: h + 20,
-          vx: (Math.random() - 0.5) * 3 * bass,
-          vy: -(2 + Math.random() * 4 * bass),
+          x: w * 0.5 + Math.cos(angle) * 30,
+          y: h * 0.45 + Math.sin(angle) * 30,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
           radius: 2 + Math.random() * 5 * bass,
           life: 0,
-          maxLife: 80 + Math.random() * 120,
-          hue: hslPrimary.h + (Math.random() - 0.5) * 40,
-          sat: 70 + Math.random() * 30,
-          light: 50 + Math.random() * 20,
-          alpha: 0.5 + bass * 0.5,
-          type: "glow",
+          maxLife: 60 + Math.random() * 80,
+          color: palette[Math.floor(Math.random() * palette.length)],
+          alpha: 0.7 + bass * 0.3,
+          type: vibe.particleType === "embers" ? "ember" : "spark",
         })
       }
     }
 
-    // Treble sparks — small, fast, diagonal
-    if (treble > 0.12 && particles.length < maxParticles) {
-      const count = Math.floor(treble * 4)
+    // 2. Treble perimeter sparks
+    if (treble > 0.15 && particles.length < maxParticles) {
+      const count = Math.floor(treble * 5)
       for (let i = 0; i < count; i++) {
-        const side = Math.random() > 0.5
+        const fromLeft = Math.random() > 0.5
         particles.push({
-          x: side ? -5 : w + 5,
-          y: Math.random() * h * 0.6,
-          vx: (side ? 1 : -1) * (1 + Math.random() * 3 * treble),
-          vy: (Math.random() - 0.3) * 2,
-          radius: 1 + Math.random() * 2,
+          x: fromLeft ? 0 : w,
+          y: Math.random() * h * 0.8,
+          vx: (fromLeft ? 1 : -1) * (1.5 + Math.random() * 4 * treble),
+          vy: (Math.random() - 0.5) * 2,
+          radius: 1 + Math.random() * 2.5,
           life: 0,
-          maxLife: 60 + Math.random() * 80,
-          hue: hslAccent.h + (Math.random() - 0.5) * 30,
-          sat: 80,
-          light: 60 + Math.random() * 30,
-          alpha: 0.4 + treble * 0.4,
+          maxLife: 50 + Math.random() * 60,
+          color: vibe.trebleSparkColor,
+          alpha: 0.6 + treble * 0.4,
           type: "spark",
         })
       }
     }
 
-    // Mid-range nebula clouds — slow, large, ambient
-    if (mid > 0.1 && Math.random() < mid * 0.3 && particles.length < maxParticles) {
+    // 3. Ambient floating embers / starlight
+    if (Math.random() < 0.25 && particles.length < maxParticles) {
       particles.push({
         x: Math.random() * w,
-        y: Math.random() * h,
-        vx: (Math.random() - 0.5) * 0.5,
-        vy: (Math.random() - 0.5) * 0.3,
-        radius: 30 + Math.random() * 60 * mid,
+        y: h + 10,
+        vx: (Math.random() - 0.5) * 0.8,
+        vy: -(0.5 + Math.random() * 1.5 * (1 + mid)),
+        radius: 1.5 + Math.random() * 3,
         life: 0,
-        maxLife: 200 + Math.random() * 200,
-        hue: hslSecondary.h + (Math.random() - 0.5) * 50,
-        sat: 50 + Math.random() * 30,
-        light: 40 + Math.random() * 20,
-        alpha: 0.06 + mid * 0.08,
-        type: "nebula",
+        maxLife: 150 + Math.random() * 150,
+        color: palette[Math.floor(Math.random() * palette.length)],
+        alpha: 0.4 + mid * 0.4,
+        type: "glow",
       })
     }
-  }, [hslPrimary.h, hslSecondary.h, hslAccent.h])
+  }, [])
 
-  // ─── Main Render Loop ───────────────────────────────────────
+  // ─── Render Loop ──────────────────────────────────────────────
   const render = useCallback((timestamp: number) => {
     const canvas = canvasRef.current
     if (!canvas) return
-
     const ctx = canvas.getContext("2d", { alpha: false })
     if (!ctx) return
 
-    // Delta time
     const dt = prevFrameTimeRef.current ? (timestamp - prevFrameTimeRef.current) / 16.67 : 1
     prevFrameTimeRef.current = timestamp
     timeRef.current += 0.016 * dt
@@ -186,138 +173,198 @@ export default function ImmersiveVisualizer() {
     const W = canvas.width
     const H = canvas.height
     const t = timeRef.current
+    const vibe = activeVibe
 
-    // ─── Read Audio Reactivity ──────────────────────────
+    // ─── Audio Dynamics ─────────────────────────────────────────
     const raw = audioDsp.getReactivityData()
     const a = audioRef.current
-    const lerpFactor = 0.15
-    a.bassSmooth += (raw.bassLevel - a.bassSmooth) * lerpFactor
-    a.midSmooth += (raw.midLevel - a.midSmooth) * lerpFactor * 0.8
-    a.trebleSmooth += (raw.trebleLevel - a.trebleSmooth) * lerpFactor
-    a.overallSmooth += (raw.overallLevel - a.overallSmooth) * lerpFactor
-    a.bass = a.bassSmooth
-    a.mid = a.midSmooth
-    a.treble = a.trebleSmooth
-    a.overall = a.overallSmooth
+    const lerp = 0.16
+    a.bass += (raw.bassLevel - a.bass) * lerp
+    a.mid += (raw.midLevel - a.mid) * (lerp * 0.85)
+    a.treble += (raw.trebleLevel - a.treble) * lerp
+    a.overall += (raw.overallLevel - a.overall) * lerp
 
-    // Bass kick detection (peak detection with cooldown)
-    if (a.bassHitCooldown > 0) a.bassHitCooldown -= dt
-    const isBassHit = a.bass > a.peakBass * 0.85 && a.bass > 0.25 && a.bassHitCooldown <= 0
-    if (isBassHit) {
-      a.bassHitCooldown = 8 // frames cooldown
-    }
-    a.peakBass = Math.max(a.peakBass * 0.995, a.bass)
-
-    // If paused, use synthesized gentle breathing
-    const energy = currentSong?.energy ?? 0.7
+    // BPM Beat Fallback if quiet/paused
+    const energy = currentSong?.energy ?? 0.75
     const tempo = currentSong?.tempo && currentSong.tempo > 60 ? currentSong.tempo : 120
     const beatPhase = (timestamp % ((60 / tempo) * 1000)) / ((60 / tempo) * 1000)
-    const synthPulse = Math.pow(Math.sin(beatPhase * Math.PI), 2.5) * 0.3 * energy
+    const beatPulse = Math.pow(Math.sin(beatPhase * Math.PI), 2.4) * 0.35 * energy
 
-    const effectiveBass = isPlaying ? (a.bass > 0.02 ? a.bass : synthPulse) : synthPulse * 0.3
-    const effectiveMid = isPlaying ? (a.mid > 0.02 ? a.mid : synthPulse * 0.5) : synthPulse * 0.2
-    const effectiveTreble = isPlaying ? (a.treble > 0.02 ? a.treble : synthPulse * 0.3) : synthPulse * 0.15
-    const effectiveOverall = isPlaying ? (a.overall > 0.02 ? a.overall : synthPulse * 0.6) : synthPulse * 0.25
+    const effectiveBass = isPlaying ? (a.bass > 0.02 ? a.bass : beatPulse) : beatPulse * 0.3
+    const effectiveMid = isPlaying ? (a.mid > 0.02 ? a.mid : beatPulse * 0.6) : beatPulse * 0.2
+    const effectiveTreble = isPlaying ? (a.treble > 0.02 ? a.treble : beatPulse * 0.4) : beatPulse * 0.15
+    const effectiveOverall = isPlaying ? (a.overall > 0.02 ? a.overall : beatPulse * 0.7) : beatPulse * 0.25
 
-    // ─── Background: Deep Gradient with Color Breathing ──
-    const bgHue = hslPrimary.h + Math.sin(t * 0.1) * 10
-    const bgSat = 15 + effectiveOverall * 20
-    const bgLight = 3 + effectiveBass * 5
-    const grad = ctx.createRadialGradient(W * 0.5, H * 0.4, 0, W * 0.5, H * 0.5, W * 0.8)
-    grad.addColorStop(0, `hsl(${bgHue}, ${bgSat}%, ${bgLight + 4}%)`)
-    grad.addColorStop(0.5, `hsl(${bgHue + 20}, ${bgSat * 0.7}%, ${bgLight + 1}%)`)
-    grad.addColorStop(1, `hsl(${bgHue}, ${bgSat * 0.3}%, ${Math.max(1, bgLight - 2)}%)`)
-    ctx.fillStyle = grad
+    // Bass Kick Transient & Shockwave Trigger
+    if (a.bassCooldown > 0) a.bassCooldown -= dt
+    const isBassHit = effectiveBass > a.bassPeak * 0.85 && effectiveBass > 0.24 && a.bassCooldown <= 0
+    if (isBassHit) {
+      a.bassCooldown = 10
+      // Spawn Shockwave
+      if (shockwavesRef.current.length < 5) {
+        shockwavesRef.current.push({
+          x: W * 0.5,
+          y: H * 0.45,
+          radius: 20,
+          maxRadius: Math.max(W, H) * 0.75,
+          color: vibe.bassShockwaveColor,
+          alpha: 0.6 + effectiveBass * 0.4,
+          lineWidth: 4 + effectiveBass * 6,
+        })
+      }
+    }
+    a.bassPeak = Math.max(a.bassPeak * 0.995, effectiveBass)
+
+    // ─── 1. Deep Void Canvas Background ─────────────────────────
+    ctx.fillStyle = "#050508"
     ctx.fillRect(0, 0, W, H)
 
-    // ─── Bass Kick Shockwave Ring ───────────────────────
-    if (isBassHit) {
-      const cx = W * 0.5
-      const cy = H * 0.5
-      const maxR = Math.max(W, H) * 0.6
-      for (let ring = 0; ring < 3; ring++) {
-        const ringR = maxR * (0.15 + ring * 0.12)
-        const ringAlpha = (0.15 - ring * 0.04) * effectiveBass
-        ctx.beginPath()
-        ctx.arc(cx, cy, ringR, 0, Math.PI * 2)
-        ctx.strokeStyle = `hsla(${hslPrimary.h}, 80%, 60%, ${ringAlpha})`
-        ctx.lineWidth = 3 - ring * 0.5
-        ctx.stroke()
-      }
-    }
+    // ─── 2. Multi-Zone Perimeter RGB Ambilight Beams (Canvas) ───
+    // Bottom Woofer Beam
+    const bottomGrad = ctx.createLinearGradient(0, H, 0, H - 240)
+    bottomGrad.addColorStop(0, vibe.bassShockwaveColor)
+    bottomGrad.addColorStop(0.4, `${vibe.primary}88`)
+    bottomGrad.addColorStop(1, "transparent")
+    ctx.fillStyle = bottomGrad
+    ctx.globalAlpha = 0.4 + effectiveBass * 0.55
+    ctx.fillRect(0, H - 240, W, 240)
 
-    // ─── Aurora Waves ───────────────────────────────────
-    for (const wave of auroraWaves) {
-      const waveAmplitude = wave.amplitude * (1 + effectiveBass * 1.5)
-      const waveAlpha = wave.alpha * (0.6 + effectiveOverall * 1.2)
-      const gradient = ctx.createLinearGradient(0, 0, 0, H)
-      gradient.addColorStop(0, `hsla(${wave.hue}, 70%, 50%, 0)`)
-      gradient.addColorStop(0.3, `hsla(${wave.hue}, 70%, 50%, ${waveAlpha})`)
-      gradient.addColorStop(0.7, `hsla(${(wave.hue + 30) % 360}, 60%, 40%, ${waveAlpha * 0.6})`)
-      gradient.addColorStop(1, `hsla(${wave.hue}, 70%, 50%, 0)`)
+    // Top Vocal Horizon
+    const topGrad = ctx.createLinearGradient(0, 0, 0, 180)
+    topGrad.addColorStop(0, vibe.secondary)
+    topGrad.addColorStop(0.5, `${vibe.vocalAuraColor}66`)
+    topGrad.addColorStop(1, "transparent")
+    ctx.fillStyle = topGrad
+    ctx.globalAlpha = 0.35 + effectiveMid * 0.45
+    ctx.fillRect(0, 0, W, 180)
+
+    // Left & Right Stereo Edge Flares
+    const leftGrad = ctx.createLinearGradient(0, 0, 150, 0)
+    leftGrad.addColorStop(0, vibe.primary)
+    leftGrad.addColorStop(1, "transparent")
+    ctx.fillStyle = leftGrad
+    ctx.globalAlpha = 0.3 + effectiveTreble * 0.4
+    ctx.fillRect(0, 0, 150, H)
+
+    const rightGrad = ctx.createLinearGradient(W, 0, W - 150, 0)
+    rightGrad.addColorStop(0, vibe.neonHighlight)
+    rightGrad.addColorStop(1, "transparent")
+    ctx.fillStyle = rightGrad
+    ctx.globalAlpha = 0.3 + effectiveTreble * 0.4
+    ctx.fillRect(W - 150, 0, 150, H)
+    ctx.globalAlpha = 1.0
+
+    // ─── 3. Volumetric Concert Spotlights (Crisscrossing Beams) ──
+    for (const beam of spotlights) {
+      const originX = W * beam.originXRatio
+      const originY = 0
+      const currentAngle = Math.PI * 0.5 + Math.sin(t * beam.sweepSpeed + beam.angleOffset) * 0.45
+      const beamLength = H * beam.lengthRatio * (1 + effectiveOverall * 0.2)
+      const targetX = originX + Math.cos(currentAngle) * beamLength
+      const targetY = originY + Math.sin(currentAngle) * beamLength
+
+      const beamW = beam.beamWidth * (1 + effectiveMid * 0.6)
+      const perpAngle = currentAngle + Math.PI * 0.5
+      const p1x = targetX - Math.cos(perpAngle) * beamW * 0.5
+      const p1y = targetY - Math.sin(perpAngle) * beamW * 0.5
+      const p2x = targetX + Math.cos(perpAngle) * beamW * 0.5
+      const p2y = targetY + Math.sin(perpAngle) * beamW * 0.5
+
+      const beamColor = vibe.rgbPalette[beam.colorIndex % vibe.rgbPalette.length]
+      const beamGrad = ctx.createLinearGradient(originX, originY, targetX, targetY)
+      beamGrad.addColorStop(0, `${beamColor}55`)
+      beamGrad.addColorStop(0.3, `${beamColor}33`)
+      beamGrad.addColorStop(0.7, `${beamColor}11`)
+      beamGrad.addColorStop(1, "transparent")
 
       ctx.beginPath()
-      const yBase = wave.offset + H * 0.15
-      ctx.moveTo(-10, yBase)
-
-      for (let x = -10; x <= W + 10; x += 4) {
-        const y = yBase +
-          Math.sin(x * wave.frequency + t * wave.speed) * waveAmplitude +
-          Math.sin(x * wave.frequency * 2.3 + t * wave.speed * 1.7) * waveAmplitude * 0.3 * effectiveMid +
-          Math.cos(x * wave.frequency * 0.7 + t * wave.speed * 0.4) * waveAmplitude * 0.2
-        ctx.lineTo(x, y)
-      }
-
-      ctx.lineTo(W + 10, H + 10)
-      ctx.lineTo(-10, H + 10)
+      ctx.moveTo(originX - 10, originY)
+      ctx.lineTo(originX + 10, originY)
+      ctx.lineTo(p2x, p2y)
+      ctx.lineTo(p1x, p1y)
       ctx.closePath()
-      ctx.fillStyle = gradient
+      ctx.fillStyle = beamGrad
+      ctx.globalAlpha = 0.4 + effectiveMid * 0.5
       ctx.fill()
     }
+    ctx.globalAlpha = 1.0
 
-    // ─── Central Frequency Orb ──────────────────────────
-    const orbRadius = 60 + effectiveBass * 100 + effectiveOverall * 40
-    const orbX = W * 0.5 + Math.sin(t * 0.3) * 30
-    const orbY = H * 0.45 + Math.cos(t * 0.2) * 20
-    const orbGrad = ctx.createRadialGradient(orbX, orbY, 0, orbX, orbY, orbRadius)
-    const orbAlpha = 0.15 + effectiveOverall * 0.25
-    orbGrad.addColorStop(0, `hsla(${hslPrimary.h}, 80%, 60%, ${orbAlpha * 1.5})`)
-    orbGrad.addColorStop(0.4, `hsla(${hslSecondary.h}, 70%, 50%, ${orbAlpha})`)
-    orbGrad.addColorStop(0.8, `hsla(${hslAccent.h}, 60%, 40%, ${orbAlpha * 0.4})`)
-    orbGrad.addColorStop(1, `hsla(${hslPrimary.h}, 50%, 30%, 0)`)
+    // ─── 4. Dynamic Shockwave Rings (Bass Kick Dispersion) ──────
+    for (let i = shockwavesRef.current.length - 1; i >= 0; i--) {
+      const sw = shockwavesRef.current[i]
+      sw.radius += 12 * dt * (1 + effectiveBass)
+      sw.alpha *= 0.95
+
+      if (sw.radius >= sw.maxRadius || sw.alpha < 0.02) {
+        shockwavesRef.current.splice(i, 1)
+        continue
+      }
+
+      ctx.save()
+      ctx.beginPath()
+      ctx.arc(sw.x, sw.y, sw.radius, 0, Math.PI * 2)
+      ctx.strokeStyle = sw.color
+      ctx.lineWidth = sw.lineWidth * (sw.alpha)
+      ctx.globalAlpha = sw.alpha
+      ctx.shadowColor = sw.color
+      ctx.shadowBlur = 25
+      ctx.stroke()
+
+      // RGB Chromatic Aberration Fringe Ring
+      ctx.beginPath()
+      ctx.arc(sw.x, sw.y, sw.radius * 1.02, 0, Math.PI * 2)
+      ctx.strokeStyle = vibe.neonHighlight
+      ctx.lineWidth = sw.lineWidth * 0.5 * sw.alpha
+      ctx.globalAlpha = sw.alpha * 0.6
+      ctx.stroke()
+      ctx.restore()
+    }
+
+    // ─── 5. Central Reactive RGB Frequency Core ─────────────────
+    const coreX = W * 0.5 + Math.sin(t * 0.4) * 20
+    const coreY = H * 0.45 + Math.cos(t * 0.3) * 15
+    const coreRadius = 70 + effectiveBass * 120 + effectiveOverall * 50
+
+    const coreGrad = ctx.createRadialGradient(coreX, coreY, 0, coreX, coreY, coreRadius)
+    coreGrad.addColorStop(0, `${vibe.primary}aa`)
+    coreGrad.addColorStop(0.4, `${vibe.secondary}66`)
+    coreGrad.addColorStop(0.7, `${vibe.neonHighlight}33`)
+    coreGrad.addColorStop(1, "transparent")
+
     ctx.beginPath()
-    ctx.arc(orbX, orbY, orbRadius, 0, Math.PI * 2)
-    ctx.fillStyle = orbGrad
+    ctx.arc(coreX, coreY, coreRadius, 0, Math.PI * 2)
+    ctx.fillStyle = coreGrad
     ctx.fill()
 
-    // ─── Frequency Ring (Circular Spectrum) ─────────────
-    const ringRadius = 80 + effectiveBass * 60
+    // ─── 6. Circular 64-Segment Audio Equalizer Ring ────────────
+    const ringRadius = 85 + effectiveBass * 40
     const ringSegments = 64
-    ctx.lineWidth = 2
+    ctx.lineWidth = 2.5
     for (let i = 0; i < ringSegments; i++) {
       const angle = (i / ringSegments) * Math.PI * 2 - Math.PI * 0.5
-      // Mix bass/mid/treble across the ring
-      const segFactor = i < ringSegments * 0.33 ? effectiveBass
-        : i < ringSegments * 0.66 ? effectiveMid
-        : effectiveTreble
-      const extRadius = ringRadius + segFactor * 80 + Math.sin(angle * 3 + t * 2) * 8
-      const innerX = orbX + Math.cos(angle) * ringRadius
-      const innerY = orbY + Math.sin(angle) * ringRadius
-      const outerX = orbX + Math.cos(angle) * extRadius
-      const outerY = orbY + Math.sin(angle) * extRadius
+      const segFactor =
+        i < ringSegments * 0.33 ? effectiveBass : i < ringSegments * 0.66 ? effectiveMid : effectiveTreble
+      const barLength = segFactor * 90 + Math.sin(angle * 4 + t * 3) * 8
+      const innerX = coreX + Math.cos(angle) * ringRadius
+      const innerY = coreY + Math.sin(angle) * ringRadius
+      const outerX = coreX + Math.cos(angle) * (ringRadius + barLength)
+      const outerY = coreY + Math.sin(angle) * (ringRadius + barLength)
 
-      const segHue = hslPrimary.h + (i / ringSegments) * 60
-      const segAlpha = 0.3 + segFactor * 0.7
+      const colorIdx = Math.floor((i / ringSegments) * vibe.rgbPalette.length)
+      const barColor = vibe.rgbPalette[colorIdx % vibe.rgbPalette.length]
+
       ctx.beginPath()
       ctx.moveTo(innerX, innerY)
       ctx.lineTo(outerX, outerY)
-      ctx.strokeStyle = `hsla(${segHue}, 80%, 55%, ${segAlpha})`
+      ctx.strokeStyle = barColor
+      ctx.globalAlpha = 0.4 + segFactor * 0.6
       ctx.stroke()
     }
+    ctx.globalAlpha = 1.0
 
-    // ─── Spawn & Update Particles ───────────────────────
+    // ─── 7. Particle Dynamics ───────────────────────────────────
     if (isPlaying) {
-      spawnParticles(W, H, effectiveBass, effectiveMid, effectiveTreble, effectiveOverall)
+      spawnParticles(W, H, effectiveBass, effectiveMid, effectiveTreble, vibe)
     }
 
     const particles = particlesRef.current
@@ -331,98 +378,66 @@ export default function ImmersiveVisualizer() {
 
       p.x += p.vx * dt
       p.y += p.vy * dt
+      p.vy += p.type === "ember" ? -0.02 * dt : 0.01 * dt
 
-      // Gravity-like deceleration for glow particles
-      if (p.type === "glow") {
-        p.vy += 0.02 * dt
-        p.vx *= 0.998
-      }
+      const lifeProgress = p.life / p.maxLife
+      const fade = lifeProgress < 0.2 ? lifeProgress / 0.2 : 1 - (lifeProgress - 0.2) / 0.8
+      const curAlpha = p.alpha * fade
 
-      const lifeRatio = p.life / p.maxLife
-      // Smooth fade: in for first 15%, out for last 30%
-      const fadeIn = Math.min(1, lifeRatio / 0.15)
-      const fadeOut = lifeRatio > 0.7 ? 1 - (lifeRatio - 0.7) / 0.3 : 1
-      const currentAlpha = p.alpha * fadeIn * fadeOut
-
-      if (p.type === "nebula") {
-        // Large soft radial glow
-        const nebGrad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.radius)
-        nebGrad.addColorStop(0, `hsla(${p.hue}, ${p.sat}%, ${p.light}%, ${currentAlpha})`)
-        nebGrad.addColorStop(1, `hsla(${p.hue}, ${p.sat}%, ${p.light}%, 0)`)
-        ctx.fillStyle = nebGrad
-        ctx.beginPath()
-        ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2)
-        ctx.fill()
-      } else if (p.type === "spark") {
-        ctx.fillStyle = `hsla(${p.hue}, ${p.sat}%, ${p.light}%, ${currentAlpha})`
-        ctx.beginPath()
-        ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2)
-        ctx.fill()
-      } else {
-        // Glow particle with soft bloom
-        const glowGrad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.radius * 3)
-        glowGrad.addColorStop(0, `hsla(${p.hue}, ${p.sat}%, ${p.light}%, ${currentAlpha})`)
-        glowGrad.addColorStop(0.5, `hsla(${p.hue}, ${p.sat}%, ${p.light}%, ${currentAlpha * 0.3})`)
-        glowGrad.addColorStop(1, `hsla(${p.hue}, ${p.sat}%, ${p.light}%, 0)`)
-        ctx.fillStyle = glowGrad
-        ctx.beginPath()
-        ctx.arc(p.x, p.y, p.radius * 3, 0, Math.PI * 2)
-        ctx.fill()
-      }
+      ctx.beginPath()
+      ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2)
+      ctx.fillStyle = p.color
+      ctx.globalAlpha = curAlpha
+      ctx.shadowColor = p.color
+      ctx.shadowBlur = 10
+      ctx.fill()
     }
-
-    // ─── Vignette Overlay ───────────────────────────────
-    const vigGrad = ctx.createRadialGradient(W * 0.5, H * 0.5, W * 0.25, W * 0.5, H * 0.5, W * 0.85)
-    vigGrad.addColorStop(0, "rgba(0,0,0,0)")
-    vigGrad.addColorStop(1, "rgba(0,0,0,0.45)")
-    ctx.fillStyle = vigGrad
-    ctx.fillRect(0, 0, W, H)
+    ctx.globalAlpha = 1.0
 
     animRef.current = requestAnimationFrame(render)
-  }, [isPlaying, currentSong, auroraWaves, hslPrimary, hslSecondary, hslAccent, spawnParticles])
+  }, [activeVibe, isPlaying, spawnParticles, spotlights, currentSong?.energy, currentSong?.tempo])
 
-  // ─── Canvas Setup & Resize ──────────────────────────────────
+  // ─── Canvas Resize Handler ────────────────────────────────────
   useEffect(() => {
-    if (!isImmersiveOpen) return
-
-    const canvas = canvasRef.current
-    if (!canvas) return
-
     const handleResize = () => {
-      const dpr = Math.min(window.devicePixelRatio || 1, 2)
+      const canvas = canvasRef.current
+      if (!canvas) return
+      const dpr = Math.min(2, window.devicePixelRatio || 1)
       canvas.width = window.innerWidth * dpr
       canvas.height = window.innerHeight * dpr
-      canvas.style.width = `${window.innerWidth}px`
-      canvas.style.height = `${window.innerHeight}px`
       const ctx = canvas.getContext("2d")
       if (ctx) ctx.scale(dpr, dpr)
     }
 
     handleResize()
     window.addEventListener("resize", handleResize)
+    return () => window.removeEventListener("resize", handleResize)
+  }, [])
 
-    // Reset particles on open
-    particlesRef.current = []
-    timeRef.current = 0
+  // ─── Animation Loop Mount ─────────────────────────────────────
+  useEffect(() => {
+    if (!isImmersiveOpen) {
+      if (animRef.current) cancelAnimationFrame(animRef.current)
+      return
+    }
+
     prevFrameTimeRef.current = 0
-
     animRef.current = requestAnimationFrame(render)
 
     return () => {
-      window.removeEventListener("resize", handleResize)
-      if (animRef.current) {
-        cancelAnimationFrame(animRef.current)
-      }
+      if (animRef.current) cancelAnimationFrame(animRef.current)
     }
   }, [isImmersiveOpen, render])
 
   if (!isImmersiveOpen) return null
 
   return (
-    <canvas
-      ref={canvasRef}
-      className="fixed inset-0 z-[199]"
-      style={{ display: "block" }}
-    />
+    <div className="fixed inset-0 z-[190] overflow-hidden pointer-events-none select-none">
+      <canvas
+        ref={canvasRef}
+        className="w-full h-full block"
+        style={{ width: "100vw", height: "100vh" }}
+      />
+    </div>
   )
 }
