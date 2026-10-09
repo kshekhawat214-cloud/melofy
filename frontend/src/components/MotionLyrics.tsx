@@ -239,8 +239,8 @@ export default function MotionLyrics() {
         coverContainerRef.current.style.transform = `scale(${scale})`
       }
       if (haloRef.current) {
-        const haloScale = 1 + smoothBassRef.current * 0.32
-        const haloOpacity = 0.45 + smoothBassRef.current * 0.52
+        const haloScale = 1 + smoothBassRef.current * 0.14
+        const haloOpacity = 0.28 + smoothBassRef.current * 0.32
         haloRef.current.style.transform = `scale(${haloScale})`
         haloRef.current.style.opacity = `${haloOpacity}`
       }
@@ -462,20 +462,20 @@ export default function MotionLyrics() {
 
   return (
     <div
-      className={`fixed inset-0 z-[200] flex flex-col items-center justify-between pointer-events-auto select-none transition-colors duration-700 ${
+      className={`fixed inset-0 z-[200] flex flex-col items-center justify-between pointer-events-auto select-none overflow-x-hidden overflow-y-hidden transition-colors duration-700 ${
         isControlsVisible ? "cursor-default" : "cursor-none"
       }`}
     >
       {/* ─── Top Header (Clean, Glassmorphic & Minimal) ─────────── */}
       <div
-        className={`w-full z-20 flex items-center justify-between px-6 py-5 md:px-10 md:py-6 transition-all duration-500 ${
+        className={`w-full z-20 flex items-center justify-between px-4 py-4 sm:px-6 sm:py-5 md:px-10 md:py-6 transition-all duration-500 ${
           isControlsVisible ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-6 pointer-events-none"
         }`}
         style={{
           background: "linear-gradient(to bottom, rgba(0,0,0,0.85) 0%, transparent 100%)",
         }}
       >
-        <div className="flex items-center space-x-3.5 min-w-0">
+        <div className="flex items-center space-x-3 min-w-0">
           <div className="p-2 rounded-xl bg-white/10 backdrop-blur-md border border-white/15 text-white flex-shrink-0">
             <Music2 size={18} className="text-white/90" />
           </div>
@@ -495,7 +495,7 @@ export default function MotionLyrics() {
           </div>
         </div>
 
-        <div className="flex items-center space-x-3 flex-shrink-0">
+        <div className="flex items-center space-x-2 sm:space-x-3 flex-shrink-0">
           {rawLyrics.length > 0 && (
             <button
               onClick={() => setShowFullTranscript(!showFullTranscript)}
@@ -519,16 +519,16 @@ export default function MotionLyrics() {
       </div>
 
       {/* ─── CENTER STAGE: ALBUM COVER VISUAL ANCHOR + MUSIC SYNC RGB ─── */}
-      <div className="relative z-10 w-full max-w-4xl px-6 md:px-12 flex-1 flex flex-col items-center justify-center text-center overflow-hidden my-auto">
-        {/* ─── 1. CENTER ALBUM COVER WITH REACTIVE AMBIENT HALO ──── */}
-        <div className="relative flex flex-col items-center justify-center mb-5 md:mb-7 select-none">
-          {/* Music-Sync Ambient Halo Radiating from behind Cover Image */}
+      <div className="relative z-10 w-full max-w-2xl px-4 sm:px-6 flex-1 flex flex-col items-center justify-center text-center overflow-hidden my-auto mx-auto">
+        {/* ─── 1. CENTER ALBUM COVER WITH ELEGANT REFINED RIM-GLOW ──── */}
+        <div className="relative flex flex-col items-center justify-center mb-4 sm:mb-6 select-none mx-auto">
+          {/* Music-Sync Rim-Glow Hugging Cover Image (Soft stage backlight, NOT a detached ball) */}
           <div
             ref={haloRef}
-            className="absolute -inset-8 sm:-inset-14 md:-inset-20 rounded-full blur-3xl pointer-events-none transition-transform duration-100 ease-out"
+            className="absolute -inset-4 sm:-inset-6 md:-inset-8 rounded-3xl blur-2xl pointer-events-none transition-transform duration-100 ease-out"
             style={{
-              background: `radial-gradient(circle, ${hexToRgba(vibe.neonHighlight, 0.75)} 0%, ${hexToRgba(vibe.primary, 0.65)} 40%, transparent 75%)`,
-              opacity: 0.55,
+              background: `radial-gradient(ellipse at center, ${hexToRgba(vibe.primary, 0.55)} 0%, ${hexToRgba(vibe.secondary, 0.35)} 60%, transparent 85%)`,
+              opacity: 0.35,
               transform: "scale(1)",
             }}
           />
@@ -536,9 +536,9 @@ export default function MotionLyrics() {
           {/* High-Res Center Cover Image with Real-time Beat Pulse */}
           <div
             ref={coverContainerRef}
-            className="relative z-10 w-48 h-48 sm:w-60 sm:h-60 md:w-68 md:h-68 lg:w-76 lg:h-76 rounded-2xl sm:rounded-3xl overflow-hidden border-2 border-white/20 shadow-[0_25px_60px_rgba(0,0,0,0.85)] transition-transform duration-100 ease-out flex-shrink-0"
+            className="relative z-10 w-36 h-36 sm:w-48 sm:h-48 md:w-56 md:h-56 lg:w-64 lg:h-64 rounded-2xl sm:rounded-3xl overflow-hidden border border-white/20 shadow-[0_20px_50px_rgba(0,0,0,0.85)] transition-transform duration-100 ease-out flex-shrink-0 mx-auto"
             style={{
-              boxShadow: `0 20px 50px rgba(0,0,0,0.8), 0 0 45px ${hexToRgba(vibe.primary, 0.45)}`,
+              boxShadow: `0 16px 40px rgba(0,0,0,0.8), 0 0 35px ${hexToRgba(vibe.primary, 0.35)}`,
             }}
           >
             <img
@@ -554,11 +554,11 @@ export default function MotionLyrics() {
           </div>
 
           {/* Song Metadata Below Cover */}
-          <div className="relative z-10 mt-4 sm:mt-5 text-center max-w-lg px-4">
-            <h2 className="text-xl sm:text-2xl md:text-3xl font-black text-white tracking-tight drop-shadow-lg truncate">
+          <div className="relative z-10 mt-3 sm:mt-4 text-center max-w-md px-2 mx-auto">
+            <h2 className="text-lg sm:text-xl md:text-2xl font-black text-white tracking-tight drop-shadow-lg truncate">
               {currentSong?.title}
             </h2>
-            <p className="text-sm sm:text-base text-white/70 font-medium truncate mt-0.5">
+            <p className="text-xs sm:text-sm text-white/70 font-medium truncate mt-0.5">
               {currentSong?.artist}
             </p>
           </div>
@@ -566,21 +566,21 @@ export default function MotionLyrics() {
 
         {/* ─── 2. STUDIO PRECISION WORD-BY-WORD MOTION LYRICS ───── */}
         {isLoading ? (
-          <div className="flex flex-col items-center space-y-3 py-4">
-            <div className="w-10 h-10 rounded-full border-2 border-white/20 border-t-white animate-spin" />
-            <p className="text-sm font-medium text-white/50">Synchronizing lyrics to beat...</p>
+          <div className="flex flex-col items-center space-y-3 py-3">
+            <div className="w-8 h-8 rounded-full border-2 border-white/20 border-t-white animate-spin" />
+            <p className="text-xs sm:text-sm font-medium text-white/50">Synchronizing lyrics to beat...</p>
           </div>
         ) : activeLine && activeLine.words.length > 0 ? (
-          <div className="flex flex-col items-center justify-center space-y-3 md:space-y-4 w-full select-none max-w-3xl">
+          <div className="flex flex-col items-center justify-center space-y-2 sm:space-y-3 w-full select-none max-w-xl mx-auto px-2">
             {/* Previous Line (Fading gently above) */}
             {prevLine && (
-              <div className="opacity-20 text-sm sm:text-lg md:text-xl font-medium text-white tracking-tight transition-opacity duration-700 select-none truncate max-w-xl">
+              <div className="opacity-25 text-xs sm:text-sm md:text-base font-medium text-white tracking-tight transition-opacity duration-700 select-none truncate max-w-md mx-auto">
                 {prevLine.text}
               </div>
             )}
 
             {/* Current Active Line — Words Arrive with Motion Graphics as Sung */}
-            <div className="w-full flex flex-wrap justify-center items-center gap-x-2.5 sm:gap-x-3.5 md:gap-x-4.5 gap-y-2 py-1 min-h-[56px]">
+            <div className="w-full flex flex-wrap justify-center items-center gap-x-2 sm:gap-x-3 md:gap-x-4 gap-y-1 py-1 min-h-[44px]">
               {activeLine.words.map((wordObj, i) => {
                 const isArrived = currentTime >= wordObj.startTime
                 const isSinging = currentTime >= wordObj.startTime && currentTime < wordObj.endTime
@@ -589,26 +589,26 @@ export default function MotionLyrics() {
                 return (
                   <span
                     key={i}
-                    className="inline-block text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-black tracking-tight transition-all duration-150 ease-out"
+                    className="inline-block text-xl sm:text-2xl md:text-3xl lg:text-4xl font-black tracking-tight break-words transition-all duration-150 ease-out"
                     style={{
                       // Words that have not yet been sung do NOT sit statically; they emerge on singer's cue
                       opacity: isArrived ? 1 : 0,
                       transform: isArrived
                         ? isSinging
-                          ? "translateY(0) scale(1.14)"
+                          ? "translateY(0) scale(1.12)"
                           : "translateY(0) scale(1)"
-                        : "translateY(16px) scale(0.85)",
+                        : "translateY(14px) scale(0.85)",
                       color: isSinging
                         ? "#ffffff"
                         : isSung
                         ? "rgba(255, 255, 255, 0.95)"
                         : "transparent",
                       textShadow: isSinging
-                        ? `0 0 25px ${vibe.primary}, 0 0 50px ${vibe.neonHighlight}`
+                        ? `0 0 20px ${vibe.primary}, 0 0 40px ${vibe.neonHighlight}`
                         : isSung
-                        ? "0 0 12px rgba(255, 255, 255, 0.35)"
+                        ? "0 0 10px rgba(255, 255, 255, 0.35)"
                         : "none",
-                      filter: isArrived ? "blur(0px)" : "blur(8px)",
+                      filter: isArrived ? "blur(0px)" : "blur(6px)",
                     }}
                   >
                     {wordObj.text}
@@ -619,7 +619,7 @@ export default function MotionLyrics() {
           </div>
         ) : (
           /* Instrumental Break / Ambient Section */
-          <div className="flex items-center space-x-2 px-4 py-1.5 rounded-full bg-white/10 backdrop-blur-md border border-white/15 text-white/60 text-xs font-semibold uppercase tracking-wider animate-in fade-in duration-500">
+          <div className="flex items-center space-x-2 px-3.5 py-1.5 rounded-full bg-white/10 backdrop-blur-md border border-white/15 text-white/60 text-xs font-semibold uppercase tracking-wider animate-in fade-in duration-500">
             <span
               className="w-2 h-2 rounded-full animate-ping"
               style={{ backgroundColor: vibe.primary }}
