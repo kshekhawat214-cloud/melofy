@@ -325,3 +325,19 @@ export function getSongRgbVibe(
   const selectedKey = presetKeys[Math.abs(hash) % presetKeys.length]
   return RGB_VIBE_PRESETS[selectedKey]
 }
+
+/**
+ * Converts a hex color (#rgb or #rrggbb) to rgba(r, g, b, alpha) string
+ */
+export function hexToRgba(hex: string, alpha = 1): string {
+  let c = (hex || "#ffffff").replace("#", "")
+  if (c.length === 3) {
+    c = c.split("").map((ch) => ch + ch).join("")
+  }
+  const num = parseInt(c, 16) || 0
+  const r = (num >> 16) & 255
+  const g = (num >> 8) & 255
+  const b = num & 255
+  const safeAlpha = Math.min(1, Math.max(0, isNaN(alpha) ? 1 : alpha))
+  return `rgba(${r}, ${g}, ${b}, ${safeAlpha})`
+}
