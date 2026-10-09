@@ -10,7 +10,7 @@ import { useAuthStore } from "@/store/authStore"
 import { getSongMoodColor } from "@/lib/colors"
 import Link from "next/link"
 
-function SongCard({ song, shelfSongs }: { song: Song; shelfSongs: Song[] }) {
+function SongCard({ song, shelfSongs, isGrid = false }: { song: Song; shelfSongs: Song[]; isGrid?: boolean }) {
   const { currentSong, isPlaying, playSongWithQueue, togglePlay } = usePlayerStore()
   const { openContextMenu } = useUIStore()
 
@@ -33,7 +33,9 @@ function SongCard({ song, shelfSongs }: { song: Song; shelfSongs: Song[] }) {
         e.preventDefault()
         openContextMenu(e.clientX, e.clientY, song)
       }}
-      className="liquid-glass-card p-3.5 rounded-2xl transition-all duration-300 group cursor-pointer relative flex flex-col select-none flex-shrink-0 w-44"
+      className={`liquid-glass-card p-3.5 rounded-2xl transition-all duration-300 group cursor-pointer relative flex flex-col select-none ${
+        isGrid ? "w-full" : "flex-shrink-0 w-44"
+      }`}
     >
       <div className="relative mb-3 pb-[100%] rounded-xl overflow-hidden shadow-lg shadow-black/60 bg-[#222] border border-white/10">
         <img
@@ -78,7 +80,16 @@ export default function Home() {
   // Initialize with seed catalog so the app loads 100% full immediately on frame 1 (zero blank screens)
   const [shelves, setShelves] = useState<Shelf[]>(SEED_SHELVES)
   const [playlists, setPlaylists] = useState<Playlist[]>(SEED_PLAYLISTS)
+  const [expandedPlaylists, setExpandedPlaylists] = useState(false)
+  const [expandedShelves, setExpandedShelves] = useState<Record<string, boolean>>({})
   const retryTimerRef = useRef<NodeJS.Timeout | null>(null)
+
+  const toggleShelf = (id: string) => {
+    setExpandedShelves((prev) => ({
+      ...prev,
+      [id]: !prev[id],
+    }))
+  }
 
   // Hydrate from localStorage cache on client mount
   useEffect(() => {
@@ -191,62 +202,111 @@ export default function Home() {
         {playlists.length > 0 && (
           <section className="space-y-4">
             <div className="flex items-center justify-between">
-              <h2 className="text-2xl font-bold text-white hover:underline cursor-pointer">
+              <h2
+                onClick={() => setExpandedPlaylists(!expandedPlaylists)}
+                className="text-2xl font-bold text-white hover:underline cursor-pointer"
+              >
                 Featured Playlists
               </h2>
-              <span className="text-xs font-bold text-[#b3b3b3] hover:underline cursor-pointer uppercase tracking-wider">
-                Show all
-              </span>
+              <button
+                onClick={() => setExpandedPlaylists(!expandedPlaylists)}
+                className="text-xs font-bold text-[#b3b3b3] hover:text-white hover:underline cursor-pointer uppercase tracking-wider transition-colors"
+              >
+                {expandedPlaylists ? "Show less" : "Show all"}
+              </button>
             </div>
 
-            <div className="flex space-x-4 sm:space-x-5 overflow-x-auto pb-2 scrollbar-hidden snap-x snap-mandatory">
-              {playlists.map((pl) => (
-                <Link
-                  key={pl.id}
-                  href={`/playlist/${pl.id}`}
-                  className="liquid-glass-card p-3.5 rounded-2xl transition-all duration-300 group cursor-pointer flex flex-col flex-shrink-0 w-44 snap-start select-none"
-                >
-                  <div className="relative mb-3 pb-[100%] rounded-xl overflow-hidden shadow-lg bg-[#222] border border-white/10">
-                    <img
-                      src={pl.coverUrl || "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=300&q=80"}
-                      className="absolute inset-0 w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-                      alt={pl.name}
-                    />
-                    <div className="absolute bottom-2 right-2 w-11 h-11 bg-[#1db954] text-black rounded-full shadow-2xl flex items-center justify-center opacity-100 md:opacity-0 translate-y-0 md:translate-y-3 md:group-hover:opacity-100 md:group-hover:translate-y-0 transition-all duration-300 hover:scale-106">
-                      <Play fill="currentColor" size={20} className="ml-0.5" />
+            {expandedPlaylists ? (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 animate-in fade-in duration-300">
+                {playlists.map((pl) => (
+                  <Link
+                    key={pl.id}
+                    href={`/playlist/${pl.id}`}
+                    className="liquid-glass-card p-3.5 rounded-2xl transition-all duration-300 group cursor-pointer flex flex-col w-full select-none"
+                  >
+                    <div className="relative mb-3 pb-[100%] rounded-xl overflow-hidden shadow-lg bg-[#222] border border-white/10">
+                      <img
+                        src={pl.coverUrl || "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=300&q=80"}
+                        className="absolute inset-0 w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                        alt={pl.name}
+                      />
+                      <div className="absolute bottom-2 right-2 w-11 h-11 bg-[#1db954] text-black rounded-full shadow-2xl flex items-center justify-center opacity-100 md:opacity-0 translate-y-0 md:translate-y-3 md:group-hover:opacity-100 md:group-hover:translate-y-0 transition-all duration-300 hover:scale-106">
+                        <Play fill="currentColor" size={20} className="ml-0.5" />
+                      </div>
                     </div>
-                  </div>
-                  <h3 className="font-bold text-sm text-white truncate mb-0.5">{pl.name}</h3>
-                  <p className="text-xs text-[#b3b3b3] line-clamp-2">
-                    {pl.description || `Playlist • ${pl.owner || "Guest"}`}
-                  </p>
-                </Link>
-              ))}
-            </div>
+                    <h3 className="font-bold text-sm text-white truncate mb-0.5">{pl.name}</h3>
+                    <p className="text-xs text-[#b3b3b3] line-clamp-2">
+                      {pl.description || `Playlist • ${pl.owner || "Guest"}`}
+                    </p>
+                  </Link>
+                ))}
+              </div>
+            ) : (
+              <div className="flex space-x-4 sm:space-x-5 overflow-x-auto pb-2 scrollbar-hidden snap-x snap-mandatory">
+                {playlists.map((pl) => (
+                  <Link
+                    key={pl.id}
+                    href={`/playlist/${pl.id}`}
+                    className="liquid-glass-card p-3.5 rounded-2xl transition-all duration-300 group cursor-pointer flex flex-col flex-shrink-0 w-44 snap-start select-none"
+                  >
+                    <div className="relative mb-3 pb-[100%] rounded-xl overflow-hidden shadow-lg bg-[#222] border border-white/10">
+                      <img
+                        src={pl.coverUrl || "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=300&q=80"}
+                        className="absolute inset-0 w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                        alt={pl.name}
+                      />
+                      <div className="absolute bottom-2 right-2 w-11 h-11 bg-[#1db954] text-black rounded-full shadow-2xl flex items-center justify-center opacity-100 md:opacity-0 translate-y-0 md:translate-y-3 md:group-hover:opacity-100 md:group-hover:translate-y-0 transition-all duration-300 hover:scale-106">
+                        <Play fill="currentColor" size={20} className="ml-0.5" />
+                      </div>
+                    </div>
+                    <h3 className="font-bold text-sm text-white truncate mb-0.5">{pl.name}</h3>
+                    <p className="text-xs text-[#b3b3b3] line-clamp-2">
+                      {pl.description || `Playlist • ${pl.owner || "Guest"}`}
+                    </p>
+                  </Link>
+                ))}
+              </div>
+            )}
           </section>
         )}
 
         {/* Dynamic Recommendation Shelves */}
         {shelves.map((shelf) => {
           if (!shelf.songs || shelf.songs.length === 0) return null
+          const isExpanded = Boolean(expandedShelves[shelf.id])
+
           return (
             <section key={shelf.id} className="space-y-4">
               <div className="flex items-center justify-between">
-                <h2 className="text-2xl font-bold text-white hover:underline cursor-pointer">
+                <h2
+                  onClick={() => toggleShelf(shelf.id)}
+                  className="text-2xl font-bold text-white hover:underline cursor-pointer"
+                >
                   {shelf.title}
                 </h2>
-                <span className="text-xs font-bold text-[#b3b3b3] hover:underline cursor-pointer uppercase tracking-wider">
-                  Show all
-                </span>
+                <button
+                  onClick={() => toggleShelf(shelf.id)}
+                  className="text-xs font-bold text-[#b3b3b3] hover:text-white hover:underline cursor-pointer uppercase tracking-wider transition-colors"
+                >
+                  {isExpanded ? "Show less" : "Show all"}
+                </button>
               </div>
 
-              <div className="flex space-x-4 sm:space-x-5 overflow-x-auto pb-2 scrollbar-hidden snap-x snap-mandatory">
-                {shelf.songs.map((song) => (
-                  <div key={song.id} className="snap-start flex-shrink-0">
-                    <SongCard song={song} shelfSongs={shelf.songs} />
-                  </div>
-                ))}
-              </div>
+              {isExpanded ? (
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 animate-in fade-in duration-300">
+                  {shelf.songs.map((song) => (
+                    <SongCard key={song.id} song={song} shelfSongs={shelf.songs} isGrid />
+                  ))}
+                </div>
+              ) : (
+                <div className="flex space-x-4 sm:space-x-5 overflow-x-auto pb-2 scrollbar-hidden snap-x snap-mandatory">
+                  {shelf.songs.map((song) => (
+                    <div key={song.id} className="snap-start flex-shrink-0">
+                      <SongCard song={song} shelfSongs={shelf.songs} />
+                    </div>
+                  ))}
+                </div>
+              )}
             </section>
           )
         })}

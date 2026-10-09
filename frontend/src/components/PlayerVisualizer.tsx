@@ -2,6 +2,7 @@
 import React, { useEffect, useRef } from "react"
 import { usePlayerStore, VisualizerMode } from "@/store/playerStore"
 import { ColorTone } from "@/lib/colors"
+import { audioDsp } from "@/lib/audioDsp"
 
 interface PlayerVisualizerProps {
   mode: VisualizerMode
@@ -49,6 +50,10 @@ export default function PlayerVisualizer({
       ctx.clearRect(0, 0, width, height)
       step += speed
 
+      // Read real audio reactivity from Web Audio DSP
+      const { bassLevel, midLevel, trebleLevel, overallLevel } = audioDsp.getReactivityData()
+      const hasRealSignal = bassLevel > 0.02 || overallLevel > 0.02
+
       if (mode === "spectrum") {
         const gap = 2.5
         const barWidth = Math.max(2, (width - (barCount - 1) * gap) / barCount)
@@ -56,16 +61,23 @@ export default function PlayerVisualizer({
         for (let i = 0; i < barCount; i++) {
           let targetHeight = 3
           if (isPlaying) {
-            // Harmonic wave formula with energy modulation
-            const wave1 = Math.sin(step + i * 0.45) * 0.5 + 0.5
-            const wave2 = Math.cos(step * 0.7 + i * 0.25) * 0.5 + 0.5
-            const wave3 = Math.sin(step * 1.3 + i * 0.8) * 0.5 + 0.5
-            const combined = (wave1 * 0.5 + wave2 * 0.3 + wave3 * 0.2) * (0.4 + trackEnergy * 0.6)
-            targetHeight = Math.max(3, combined * (height - 2))
+            if (hasRealSignal) {
+              // Real-time audio band frequency reactivity
+              const bandFactor = i < barCount * 0.33 ? bassLevel : i < barCount * 0.66 ? midLevel : trebleLevel
+              const waveJitter = Math.sin(step * 1.5 + i * 0.7) * 0.15 + 0.85
+              targetHeight = Math.max(3, bandFactor * waveJitter * (height - 2) * 1.4)
+            } else {
+              // Harmonic wave formula with energy modulation
+              const wave1 = Math.sin(step + i * 0.45) * 0.5 + 0.5
+              const wave2 = Math.cos(step * 0.7 + i * 0.25) * 0.5 + 0.5
+              const wave3 = Math.sin(step * 1.3 + i * 0.8) * 0.5 + 0.5
+              const combined = (wave1 * 0.5 + wave2 * 0.3 + wave3 * 0.2) * (0.4 + trackEnergy * 0.6)
+              targetHeight = Math.max(3, combined * (height - 2))
+            }
           }
 
           // Smooth interpolation
-          heights[i] += (targetHeight - heights[i]) * 0.25
+          heights[i] += (targetHeight - heights[i]) * 0.3
 
           const x = i * (barWidth + gap)
           const y = height - heights[i]
@@ -85,7 +97,8 @@ export default function PlayerVisualizer({
         // Breathing pulse line
         const centerX = width / 2
         const centerY = height / 2
-        const pulse = isPlaying ? Math.sin(step) * 4 * trackEnergy + 6 : 3
+        const reactiveMultiplier = hasRealSignal ? (bassLevel * 6 + 4) : (Math.sin(step) * 4 * trackEnergy + 6)
+        const pulse = isPlaying ? reactiveMultiplier : 3
 
         ctx.strokeStyle = moodTone.accent || "#1db954"
         ctx.lineWidth = 2.5
@@ -112,15 +125,15 @@ export default function PlayerVisualizer({
         cancelAnimationFrame(animationFrameRef.current)
       }
     }
-  }, [mode, isPlaying, moodTone, height, barCount, currentSong?.id, currentSong?.energy])
+  }, [mode, moodTone, height, barCount, isPlaying, currentSong?.energy])
 
   if (mode === "off") return null
 
   return (
     <canvas
       ref={canvasRef}
-      className={`inline-block ${className}`}
-      style={{ width: "100%", height: `${height}px` }}
+      className={`w-full h-full block ${className}`}
+      style={{ height: `${height}px` }}
     />
   )
 }

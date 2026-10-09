@@ -35,6 +35,7 @@ import { useAuthStore } from "@/store/authStore"
 import { API_BASE, getSongCover, recordInteraction } from "@/lib/api"
 import { getSongMoodColor } from "@/lib/colors"
 import { SOUNDSTAGE_PROFILES } from "@/lib/soundstage"
+import { audioDsp } from "@/lib/audioDsp"
 import PlayerVisualizer from "@/components/PlayerVisualizer"
 
 export default function Player() {
@@ -205,16 +206,29 @@ export default function Player() {
     previousSongRef.current = { id: currentSong.id, duration: currentSong.duration, progress: 0 }
   }, [currentSong?.id, currentUserId])
 
+  // Web Audio DSP Soundstage Engine Hook
+  useEffect(() => {
+    if (audioRef.current) {
+      audioDsp.init(audioRef.current)
+      audioDsp.applyMode(soundstageMode)
+    }
+  }, [soundstageMode])
+
   // Playback control
   useEffect(() => {
     if (audioRef.current && currentSong) {
       if (isPlaying) {
+        audioDsp.resume()
+        if (audioRef.current) {
+          audioDsp.init(audioRef.current)
+          audioDsp.applyMode(soundstageMode)
+        }
         audioRef.current.play().catch((err) => console.log("Audio play prevented:", err))
       } else {
         audioRef.current.pause()
       }
     }
-  }, [isPlaying])
+  }, [isPlaying, soundstageMode])
 
   // Volume sync: reapply whenever volume, mute state, or song changes
   const applyCurrentVolume = useCallback(() => {
@@ -514,7 +528,15 @@ export default function Player() {
         <audio
           ref={audioRef}
           src={getFullAudioUrl(currentSong.streamUrl)}
+          crossOrigin="anonymous"
           preload="auto"
+          onPlay={() => {
+            audioDsp.resume()
+            if (audioRef.current) {
+              audioDsp.init(audioRef.current)
+              audioDsp.applyMode(soundstageMode)
+            }
+          }}
           onLoadStart={applyCurrentVolume}
           onLoadedData={applyCurrentVolume}
           onTimeUpdate={handleTimeUpdate}
@@ -540,6 +562,11 @@ export default function Player() {
             if (currentSong) {
               audioRetryRef.current = { id: currentSong.id, count: 0 }
             }
+            audioDsp.resume()
+            if (audioRef.current) {
+              audioDsp.init(audioRef.current)
+              audioDsp.applyMode(soundstageMode)
+            }
           }}
           onCanPlay={() => {
             applyCurrentVolume()
@@ -559,11 +586,21 @@ export default function Player() {
               }
             }
             if (isPlaying && audioRef.current && audioRef.current.paused) {
+              audioDsp.resume()
               audioRef.current.play().catch((err) => console.log("Audio autoplay prevented:", err))
             }
           }}
           onError={(e) => {
             console.error("Audio stream error:", e)
+            // If crossOrigin was rejected by a cross-origin redirect, drop crossOrigin and retry
+            if (audioRef.current && audioRef.current.crossOrigin) {
+              audioRef.current.removeAttribute("crossorigin")
+              audioRef.current.load()
+              if (isPlaying) {
+                audioRef.current.play().catch(() => {})
+              }
+              return
+            }
             if (currentSong && audioRetryRef.current.id === currentSong.id && audioRetryRef.current.count < 2) {
               audioRetryRef.current.count += 1
               console.log(`Auto-retrying audio playback (attempt ${audioRetryRef.current.count})...`)
@@ -1079,6 +1116,8 @@ export default function Player() {
                     key={profile.id}
                     onClick={() => {
                       setSoundstageMode(profile.id)
+                      audioDsp.resume()
+                      audioDsp.applyMode(profile.id)
                       setShowSoundstageMenu(false)
                       addToast(`Soundstage: ${profile.name} Active 🎧`, "info")
                     }}
@@ -1365,6 +1404,8 @@ export default function Player() {
                   key={profile.id}
                   onClick={() => {
                     setSoundstageMode(profile.id)
+                    audioDsp.resume()
+                    audioDsp.applyMode(profile.id)
                     addToast(`Soundstage: ${profile.name} Active 🎧`, "info")
                   }}
                   className={`px-3 py-1 rounded-full text-xs font-semibold transition cursor-pointer ${
