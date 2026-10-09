@@ -214,21 +214,41 @@ export default function Player() {
     }
   }, [soundstageMode])
 
-  // Playback control
+  // Global user gesture unlocker for AudioContext
   useEffect(() => {
-    if (audioRef.current && currentSong) {
-      if (isPlaying) {
-        audioDsp.resume()
-        if (audioRef.current) {
-          audioDsp.init(audioRef.current)
-          audioDsp.applyMode(soundstageMode)
-        }
-        audioRef.current.play().catch((err) => console.log("Audio play prevented:", err))
-      } else {
-        audioRef.current.pause()
-      }
+    const unlockAudio = () => {
+      audioDsp.resume()
     }
-  }, [isPlaying, soundstageMode])
+    window.addEventListener("pointerdown", unlockAudio, { once: true })
+    window.addEventListener("keydown", unlockAudio, { once: true })
+    return () => {
+      window.removeEventListener("pointerdown", unlockAudio)
+      window.removeEventListener("keydown", unlockAudio)
+    }
+  }, [])
+
+  // Playback control and track change synchronizer
+  useEffect(() => {
+    const audio = audioRef.current
+    if (!audio || !currentSong) return
+
+    if (isPlaying) {
+      audioDsp.resume()
+      if (audio) {
+        audioDsp.init(audio)
+        audioDsp.applyMode(soundstageMode)
+      }
+      applyCurrentVolume()
+      const playPromise = audio.play()
+      if (playPromise !== undefined) {
+        playPromise.catch((err) => {
+          console.info("Playback transition handled:", err)
+        })
+      }
+    } else {
+      audio.pause()
+    }
+  }, [isPlaying, soundstageMode, currentSong?.id])
 
   // Volume sync: reapply whenever volume, mute state, or song changes
   const applyCurrentVolume = useCallback(() => {
@@ -592,29 +612,23 @@ export default function Player() {
           }}
           onError={(e) => {
             console.error("Audio stream error:", e)
-            // If crossOrigin was rejected by a cross-origin redirect, drop crossOrigin and retry
-            if (audioRef.current && audioRef.current.crossOrigin) {
-              audioRef.current.removeAttribute("crossorigin")
-              audioRef.current.load()
-              if (isPlaying) {
-                audioRef.current.play().catch(() => {})
-              }
-              return
-            }
-            if (currentSong && audioRetryRef.current.id === currentSong.id && audioRetryRef.current.count < 2) {
+            if (currentSong && audioRetryRef.current.id === currentSong.id && audioRetryRef.current.count < 3) {
               audioRetryRef.current.count += 1
               console.log(`Auto-retrying audio playback (attempt ${audioRetryRef.current.count})...`)
               setTimeout(() => {
                 if (audioRef.current && currentSong) {
                   const baseAudioUrl = getFullAudioUrl(currentSong.streamUrl)
                   const sep = baseAudioUrl.includes("?") ? "&" : "?"
+                  audioRef.current.crossOrigin = "anonymous"
                   audioRef.current.src = `${baseAudioUrl}${sep}_retry=${audioRetryRef.current.count}&_t=${Date.now()}`
                   audioRef.current.load()
+                  applyCurrentVolume()
                   if (isPlaying) {
+                    audioDsp.resume()
                     audioRef.current.play().catch((err) => console.log("Auto-retry play prevented:", err))
                   }
                 }
-              }, 1200)
+              }, 800)
             } else {
               setIsBuffering(false)
             }

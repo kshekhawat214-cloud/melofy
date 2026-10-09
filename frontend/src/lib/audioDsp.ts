@@ -138,12 +138,15 @@ class AudioDspEngine {
   }
 
   /**
-   * Resumes AudioContext if suspended by browser autoplay policies.
+   * Resumes AudioContext if suspended or interrupted by browser autoplay policies.
    */
-  public resume(): void {
-    if (this.audioCtx && this.audioCtx.state === "suspended") {
-      this.audioCtx.resume().catch(() => {})
+  public resume(): Promise<void> {
+    if (this.audioCtx && (this.audioCtx.state === "suspended" || (this.audioCtx.state as any) === "interrupted")) {
+      return this.audioCtx.resume().catch((err) => {
+        console.debug("AudioContext resume note:", err)
+      })
     }
+    return Promise.resolve()
   }
 
   /**

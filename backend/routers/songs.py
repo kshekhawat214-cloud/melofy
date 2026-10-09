@@ -2,8 +2,8 @@
 Songs Router: CRUD + Stream audio + Download endpoint.
 Serves audio files as streams directly from local_storage.
 """
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
-from fastapi.responses import FileResponse, RedirectResponse, PlainTextResponse
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Request
+from fastapi.responses import FileResponse, RedirectResponse, PlainTextResponse, StreamingResponse
 from sqlalchemy.orm import Session
 from database.models import Song, get_db
 from pathlib import Path
@@ -64,6 +64,57 @@ def get_audio_mime_type(file_path: Path) -> str:
     return guessed or "audio/mp4"
 
 
+def proxy_remote_audio_stream(remote_url: str, request_range: str = None):
+    """Proxies remote CDN audio stream chunk-by-chunk with full CORS and HTTP 206 Range headers."""
+    import urllib.request
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+    if request_range:
+        headers["Range"] = request_range
+
+    try:
+        req = urllib.request.Request(remote_url, headers=headers)
+        upstream = urllib.request.urlopen(req, timeout=12.0)
+        status_code = getattr(upstream, "status", 200)
+
+        response_headers = {
+            "Accept-Ranges": "bytes",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+            "Access-Control-Allow-Headers": "*",
+            "Access-Control-Expose-Headers": "Content-Range, Content-Length, Accept-Ranges",
+        }
+        for h in ["Content-Range", "Content-Length", "Content-Type"]:
+            val = upstream.headers.get(h)
+            if val:
+                response_headers[h] = val
+        if "Content-Type" not in response_headers or not response_headers["Content-Type"]:
+            response_headers["Content-Type"] = "audio/mp4"
+
+        def iterfile():
+            try:
+                while True:
+                    chunk = upstream.read(64 * 1024)
+                    if not chunk:
+                        break
+                    yield chunk
+            except Exception as stream_err:
+                logger.debug(f"Streaming chunk note: {stream_err}")
+            finally:
+                upstream.close()
+
+        return StreamingResponse(
+            iterfile(),
+            status_code=status_code,
+            headers=response_headers,
+        )
+    except Exception as proxy_err:
+        logger.warning(f"Audio stream proxy fallback to redirect: {proxy_err}")
+        return RedirectResponse(url=remote_url, status_code=307, headers=STREAM_HEADERS)
+
+
 @router.options("/songs/{song_id}/stream")
 def options_stream_audio(song_id: str):
     from fastapi import Response
@@ -71,14 +122,14 @@ def options_stream_audio(song_id: str):
 
 
 @router.api_route("/songs/{song_id}/stream", methods=["GET", "HEAD"])
-async def stream_audio(song_id: str, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+async def stream_audio(song_id: str, request: Request, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     """
     Streams the audio file with instant sub-second response times.
     1. If cached on disk or remote CDN, streams immediately with HTTP 206 range support.
     2. Duration Sanity Check: If a file exists on disk but duration differs from the official track
        by > 30% (e.g. slowed/reverb/fan cover), it auto-purges the wrong file and re-resolves the genuine original!
     3. If uncached, instantly resolves a direct 320kbps CDN stream (< 1s cold start) and returns
-       a 307 Redirect so user playback begins immediately, while caching to disk in the background.
+       a proxied stream with guaranteed CORS so user playback begins immediately, while caching to disk in background.
     """
     logger.info(f"Stream request for song: {song_id}")
     try:
@@ -86,9 +137,11 @@ async def stream_audio(song_id: str, background_tasks: BackgroundTasks, db: Sess
         if not song:
             raise HTTPException(status_code=404, detail="Song not found")
 
-        # 1. If audio is an external direct CDN URL, redirect immediately (sub-100ms)
+        request_range = request.headers.get("range")
+
+        # 1. If audio is an external direct CDN URL, proxy stream with full CORS & Range support
         if song.audio_path and (song.audio_path.startswith("http://") or song.audio_path.startswith("https://")):
-            return RedirectResponse(url=song.audio_path, status_code=307, headers=STREAM_HEADERS)
+            return proxy_remote_audio_stream(song.audio_path, request_range)
 
         path = None
         if song.audio_path:
@@ -196,7 +249,7 @@ async def stream_audio(song_id: str, background_tasks: BackgroundTasks, db: Sess
                         logger.warning(f"Background stream cache failed: {bg_err}")
 
                 background_tasks.add_task(_bg_download, track_meta, song.source_url or "")
-                return RedirectResponse(url=direct_url, status_code=307, headers=STREAM_HEADERS)
+                return proxy_remote_audio_stream(direct_url, request_range)
         except Exception as resolve_err:
             logger.warning(f"Direct stream resolver passed to full download: {resolve_err}")
 
