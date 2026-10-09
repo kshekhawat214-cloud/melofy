@@ -192,10 +192,11 @@ async def stream_audio(song_id: str, request: Request, background_tasks: Backgro
             raise HTTPException(status_code=404, detail="Song not found")
 
         request_range = request.headers.get("range")
+        is_retry = bool(request.query_params.get("_retry"))
 
-        # 1. If audio is an external direct CDN URL, proxy stream with full CORS & Range support
-        if song.audio_path and (song.audio_path.startswith("http://") or song.audio_path.startswith("https://")):
-            return proxy_remote_audio_stream(song.audio_path, request_range)
+        # 1. If audio is an external direct CDN URL (and not a retry after playback error), redirect directly
+        if not is_retry and song.audio_path and (song.audio_path.startswith("http://") or song.audio_path.startswith("https://")):
+            return RedirectResponse(url=song.audio_path, status_code=307, headers=STREAM_HEADERS)
 
         path = None
         if song.audio_path:
@@ -303,7 +304,7 @@ async def stream_audio(song_id: str, request: Request, background_tasks: Backgro
                         logger.warning(f"Background stream cache failed: {bg_err}")
 
                 background_tasks.add_task(_bg_download, track_meta, song.source_url or "")
-                return proxy_remote_audio_stream(direct_url, request_range)
+                return RedirectResponse(url=direct_url, status_code=307, headers=STREAM_HEADERS)
         except Exception as resolve_err:
             logger.warning(f"Direct stream resolver passed to full download: {resolve_err}")
 
@@ -348,7 +349,7 @@ async def stream_audio(song_id: str, request: Request, background_tasks: Backgro
                         em_entries = em_data.get("entries", []) if em_data else []
                         if em_entries and em_entries[0].get("url"):
                             logger.info(f"Emergency Tier 4 succeeded for '{song.title}' -> streaming immediately!")
-                            return proxy_remote_audio_stream(em_entries[0]["url"], request_range)
+                            return RedirectResponse(url=em_entries[0]["url"], status_code=307, headers=STREAM_HEADERS)
                 except Exception as em_err:
                     logger.warning(f"Emergency Tier 4 stream fallback note: {em_err}")
 
@@ -654,10 +655,7 @@ def _serialize(s: Song) -> dict:
                     is_cached = True
                     break
 
-    if is_url:
-        stream_url = s.audio_path
-    else:
-        stream_url = f"/api/songs/{s.id}/stream"
+    stream_url = f"/api/songs/{s.id}/stream"
 
     safe_thumb = None if (s.thumbnail_url and "mosaic.scdn.co" in s.thumbnail_url) else s.thumbnail_url
 

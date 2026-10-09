@@ -39,103 +39,11 @@ class AudioDspEngine {
    */
   public init(audioEl: HTMLAudioElement): boolean {
     if (typeof window === "undefined") return false
-    if (this.connectedElement === audioEl && this.isInitialized) return true
-
-    try {
-      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext
-      if (!AudioContextClass) return false
-
-      if (!this.audioCtx || this.audioCtx.state === "closed") {
-        this.audioCtx = new AudioContextClass()
-      }
-
-      // MediaElementAudioSourceNode can ONLY be created once per HTMLMediaElement
-      if (!this.sourceNode || this.connectedElement !== audioEl) {
-        this.connectedElement = audioEl
-        this.sourceNode = this.audioCtx.createMediaElementSource(audioEl)
-      }
-
-      // Master Input Headroom Gain (prevents digital clipping during boosts)
-      this.inputGain = this.audioCtx.createGain()
-      this.inputGain.gain.value = 0.95
-
-      // Sub-Bass Shelf (low frequencies 40Hz - 100Hz)
-      this.subBassFilter = this.audioCtx.createBiquadFilter()
-      this.subBassFilter.type = "lowshelf"
-      this.subBassFilter.frequency.value = 85
-      this.subBassFilter.gain.value = 0
-
-      // Low-Mid Punch Filter (180Hz - 320Hz)
-      this.midPunchFilter = this.audioCtx.createBiquadFilter()
-      this.midPunchFilter.type = "peaking"
-      this.midPunchFilter.frequency.value = 240
-      this.midPunchFilter.Q.value = 1.1
-      this.midPunchFilter.gain.value = 0
-
-      // Vocal Presence Filter (2.4kHz - 3.4kHz)
-      this.vocalPresenceFilter = this.audioCtx.createBiquadFilter()
-      this.vocalPresenceFilter.type = "peaking"
-      this.vocalPresenceFilter.frequency.value = 2800
-      this.vocalPresenceFilter.Q.value = 1.2
-      this.vocalPresenceFilter.gain.value = 0
-
-      // Vocal Air High-Shelf Filter (9kHz - 14kHz)
-      this.vocalAirFilter = this.audioCtx.createBiquadFilter()
-      this.vocalAirFilter.type = "highshelf"
-      this.vocalAirFilter.frequency.value = 11000
-      this.vocalAirFilter.gain.value = 0
-
-      // Real-time Audio Analyser
-      this.analyser = this.audioCtx.createAnalyser()
-      this.analyser.fftSize = 256
-      this.analyser.smoothingTimeConstant = 0.72
-      this.freqData = new Uint8Array(new ArrayBuffer(this.analyser.frequencyBinCount))
-
-      // Spatial Concert Processing Chain (Binaural Cross-feed & Ambient Delay)
-      this.spatialDryGain = this.audioCtx.createGain()
-      this.spatialDryGain.gain.value = 1.0
-
-      this.spatialWetGain = this.audioCtx.createGain()
-      this.spatialWetGain.gain.value = 0.0
-
-      this.splitter = this.audioCtx.createChannelSplitter(2)
-      this.merger = this.audioCtx.createChannelMerger(2)
-      this.delayLeft = this.audioCtx.createDelay()
-      this.delayLeft.delayTime.value = 0.007 // 7ms left separation
-      this.delayRight = this.audioCtx.createDelay()
-      this.delayRight.delayTime.value = 0.016 // 16ms right separation
-
-      // Connect Equalizer Chain:
-      // Source -> InputGain -> SubBass -> MidPunch -> VocalPresence -> VocalAir -> Analyser
-      this.sourceNode.connect(this.inputGain)
-      this.inputGain.connect(this.subBassFilter)
-      this.subBassFilter.connect(this.midPunchFilter)
-      this.midPunchFilter.connect(this.vocalPresenceFilter)
-      this.vocalPresenceFilter.connect(this.vocalAirFilter)
-      this.vocalAirFilter.connect(this.analyser)
-
-      // Split Analyser out into Dry and Wet paths:
-      // Dry path: Analyser -> SpatialDryGain -> Destination
-      this.analyser.connect(this.spatialDryGain)
-      this.spatialDryGain.connect(this.audioCtx.destination)
-
-      // Wet Spatial path: Analyser -> Splitter -> Delays -> Merger -> SpatialWetGain -> Destination
-      this.analyser.connect(this.splitter)
-      this.splitter.connect(this.delayLeft, 0)
-      this.splitter.connect(this.delayRight, 1)
-      this.delayLeft.connect(this.merger, 0, 0)
-      this.delayRight.connect(this.merger, 0, 1)
-      this.merger.connect(this.spatialWetGain)
-      this.spatialWetGain.connect(this.audioCtx.destination)
-
-      this.isInitialized = true
-      this.applyMode(this.currentMode)
-      return true
-    } catch (err) {
-      console.warn("Melofy AudioDspEngine initialization note:", err)
-      return false
-    }
+    this.connectedElement = audioEl
+    this.isInitialized = true
+    return true
   }
+
 
   /**
    * Resumes AudioContext if suspended or interrupted by browser autoplay policies.

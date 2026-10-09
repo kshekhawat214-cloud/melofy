@@ -171,52 +171,7 @@ export default function ImmersiveVisualizer() {
     ctx.fillStyle = grad4
     ctx.fillRect(0, 0, W, H)
 
-    // ─── 4. Fluid Liquid Wave Contours (Soft Ambient Depth) ───────────
-    // Undulating organic liquid waves that sweep gently behind the scene
-    const wavePoints = 24
-    const waveStepX = W / (wavePoints - 1)
-
-    // Wave 1: Bass / Rhythm Floor Contour
-    const wave1BaseY = H * 0.72
-    ctx.beginPath()
-    ctx.moveTo(0, wave1BaseY)
-    for (let i = 0; i < wavePoints; i++) {
-      const frac = i / (wavePoints - 1)
-      const wy = wave1BaseY + Math.sin(t * 1.8 + frac * Math.PI * 3) * (30 + curBass * 40)
-      ctx.lineTo(i * waveStepX, wy)
-    }
-    ctx.lineTo(W, H)
-    ctx.lineTo(0, H)
-    ctx.closePath()
-
-    const wave1Grad = ctx.createLinearGradient(0, wave1BaseY - 40, 0, H)
-    wave1Grad.addColorStop(0, hexToRgba(vibe.primary, 0.18 + curBass * 0.24))
-    wave1Grad.addColorStop(0.6, hexToRgba(vibe.secondary, 0.08 + curBass * 0.12))
-    wave1Grad.addColorStop(1, "transparent")
-    ctx.fillStyle = wave1Grad
-    ctx.fill()
-
-    // Wave 2: Melodic Mid Contour (Flowing through mid-stage)
-    const wave2BaseY = H * 0.52
-    ctx.beginPath()
-    ctx.moveTo(0, wave2BaseY)
-    for (let i = 0; i < wavePoints; i++) {
-      const frac = i / (wavePoints - 1)
-      const wy = wave2BaseY + Math.sin(t * 2.4 + frac * Math.PI * 4 + 1.2) * (20 + curMid * 32)
-      ctx.lineTo(i * waveStepX, wy)
-    }
-    ctx.lineTo(W, H)
-    ctx.lineTo(0, H)
-    ctx.closePath()
-
-    const wave2Grad = ctx.createLinearGradient(0, wave2BaseY - 30, 0, H)
-    wave2Grad.addColorStop(0, hexToRgba(vibe.secondary, 0.14 + curMid * 0.20))
-    wave2Grad.addColorStop(0.7, hexToRgba(vibe.accent, 0.06 + curMid * 0.10))
-    wave2Grad.addColorStop(1, "transparent")
-    ctx.fillStyle = wave2Grad
-    ctx.fill()
-
-    // ─── 5. Soft Out-Of-Focus Stardust Bokeh (Highs & Air) ────────────
+    // ─── 4. Soft Out-Of-Focus Stardust Bokeh (Highs & Air) ────────────
     const pts = stardustRef.current
     for (let i = 0; i < pts.length; i++) {
       const p = pts[i]

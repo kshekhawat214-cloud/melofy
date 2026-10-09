@@ -213,11 +213,6 @@ export default function Player() {
       setDuration(currentSong.duration)
     }
     previousSongRef.current = { id: currentSong.id, duration: currentSong.duration, progress: 0 }
-
-    // Proactively reload audio element to ensure browser picks up the new source cleanly
-    if (audioRef.current) {
-      audioRef.current.load()
-    }
   }, [currentSong?.id, currentUserId])
 
   // Web Audio DSP Soundstage Engine Hook
@@ -247,33 +242,20 @@ export default function Player() {
     if (!audio || !currentSong) return
 
     if (isPlaying) {
-      audioDsp.resume()
-      if (audio) {
-        audioDsp.init(audio)
-        audioDsp.applyMode(soundstageMode)
-      }
       applyCurrentVolume()
-
-      // If audio has sufficient data loaded, initiate playback
-      if (audio.readyState >= 2) {
-        const playPromise = audio.play()
-        if (playPromise !== undefined) {
-          playPromise.catch((err) => {
-            console.info("Playback transition handled:", err)
-          })
-        }
-      } else {
-        // Queue playback to trigger the instant onCanPlay / onLoadedData fires
-        shouldPlayOnReadyRef.current = true
-        if (audio.error || audio.networkState === HTMLMediaElement.NETWORK_NO_SOURCE) {
-          audio.load()
-        }
+      const playPromise = audio.play()
+      if (playPromise !== undefined) {
+        playPromise.catch((err) => {
+          if (err.name !== "AbortError") {
+            shouldPlayOnReadyRef.current = true
+          }
+        })
       }
     } else {
       shouldPlayOnReadyRef.current = false
       audio.pause()
     }
-  }, [isPlaying, soundstageMode, currentSong?.id])
+  }, [isPlaying, currentSong?.id])
 
   // Volume sync: reapply whenever volume, mute state, or song changes
   const applyCurrentVolume = useCallback(() => {
@@ -573,13 +555,11 @@ export default function Player() {
         <audio
           ref={audioRef}
           src={getFullAudioUrl(currentSong.streamUrl)}
-          crossOrigin="anonymous"
           preload="auto"
           onPlay={() => {
-            audioDsp.resume()
+            applyCurrentVolume()
             if (audioRef.current) {
               audioDsp.init(audioRef.current)
-              audioDsp.applyMode(soundstageMode)
             }
           }}
           onLoadStart={applyCurrentVolume}
@@ -607,11 +587,6 @@ export default function Player() {
             if (currentSong) {
               audioRetryRef.current = { id: currentSong.id, count: 0 }
             }
-            audioDsp.resume()
-            if (audioRef.current) {
-              audioDsp.init(audioRef.current)
-              audioDsp.applyMode(soundstageMode)
-            }
           }}
           onCanPlay={() => {
             applyCurrentVolume()
@@ -631,13 +606,21 @@ export default function Player() {
               }
             }
             if (isPlaying || shouldPlayOnReadyRef.current) {
-              audioDsp.resume()
               if (audioRef.current && audioRef.current.paused) {
-                audioRef.current.play().catch((err) => console.log("Audio autoplay prevented:", err))
+                audioRef.current.play().catch((err) => {
+                  if (err.name !== "AbortError") {
+                    console.log("Audio autoplay prevented:", err)
+                  }
+                })
               }
             }
           }}
           onError={(e) => {
+            const audio = audioRef.current
+            // Ignore normal AbortError when switching songs quickly
+            if (audio && audio.error && audio.error.code === MediaError.MEDIA_ERR_ABORTED) {
+              return
+            }
             console.error("Audio stream error:", e)
             if (!currentSong) return
 
@@ -645,32 +628,22 @@ export default function Player() {
               audioRetryRef.current = { id: currentSong.id, count: 0 }
             }
 
-            // Up to 6 resilient retries with progressive backoff (total ~25s window for on-demand resolver)
-            if (audioRetryRef.current.count < 6) {
+            if (audioRetryRef.current.count < 3) {
               audioRetryRef.current.count += 1
               const count = audioRetryRef.current.count
               setIsBuffering(true)
-              const delay = Math.min(5000, 1000 + (count - 1) * 800)
-              console.log(`Auto-retrying audio playback for "${currentSong.title}" (attempt ${count}/6 in ${delay}ms)...`)
+              const delay = Math.min(3000, 800 + (count - 1) * 800)
+              console.log(`Auto-retrying audio playback for "${currentSong.title}" (attempt ${count}/3 in ${delay}ms)...`)
 
               if (audioRetryTimerRef.current) clearTimeout(audioRetryTimerRef.current)
               audioRetryTimerRef.current = setTimeout(() => {
                 if (audioRef.current && currentSong) {
                   const baseAudioUrl = getFullAudioUrl(currentSong.streamUrl)
                   const sep = baseAudioUrl.includes("?") ? "&" : "?"
-
-                  // Fail-safe: on attempt 3+, remove crossorigin restriction to bypass any browser CORS edge case
-                  if (count >= 3) {
-                    audioRef.current.removeAttribute("crossorigin")
-                  } else {
-                    audioRef.current.crossOrigin = "anonymous"
-                  }
-
                   audioRef.current.src = `${baseAudioUrl}${sep}_retry=${count}&_t=${Date.now()}`
-                  audioRef.current.load()
                   applyCurrentVolume()
                   shouldPlayOnReadyRef.current = true
-                  audioDsp.resume()
+                  audioRef.current.play().catch(() => {})
                 }
               }, delay)
             } else {
