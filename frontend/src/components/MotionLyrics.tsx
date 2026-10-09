@@ -211,6 +211,7 @@ export default function MotionLyrics() {
   const smoothBassRef = useRef(0)
   const smoothMidRef = useRef(0)
   const smoothTrebleRef = useRef(0)
+  const smoothedSpectrumRef = useRef<Float32Array>(new Float32Array(64))
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
   // Soft mood vibe for subtle text glow
@@ -262,24 +263,25 @@ export default function MotionLyrics() {
 
       // Update Center Cover Pulse & Halo Bloom directly on DOM (60 FPS, 0 React re-renders)
       const raw = audioDsp.getReactivityData()
-      // Silky smooth asymmetrical tracking (velvety musical response, zero harsh jitter)
-      smoothBassRef.current += (raw.bassLevel - smoothBassRef.current) * 0.12
-      smoothMidRef.current += (raw.midLevel - smoothMidRef.current) * 0.10
-      smoothTrebleRef.current += (raw.trebleLevel - smoothTrebleRef.current) * 0.10
+
+      // High-precision musical envelope follower (instant punchy attack, luxurious velvety decay)
+      const bassSpeed = raw.bassLevel > smoothBassRef.current ? 0.44 : 0.14
+      smoothBassRef.current += (raw.bassLevel - smoothBassRef.current) * bassSpeed
+
+      const midSpeed = raw.midLevel > smoothMidRef.current ? 0.38 : 0.12
+      smoothMidRef.current += (raw.midLevel - smoothMidRef.current) * midSpeed
+
+      const trebleSpeed = raw.trebleLevel > smoothTrebleRef.current ? 0.38 : 0.12
+      smoothTrebleRef.current += (raw.trebleLevel - smoothTrebleRef.current) * trebleSpeed
 
       if (coverContainerRef.current) {
-        // Subtle, elegant ~2% heartbeat pulse on downbeats (natural & premium)
-        const kickScale = 1 + smoothBassRef.current * 0.022
+        // Dynamic musical heartbeat pulse on kicks & downbeats (~3.8% scale)
+        const kickScale = 1 + smoothBassRef.current * 0.038
         coverContainerRef.current.style.transform = `scale(${kickScale})`
-      }
-      if (haloRef.current) {
-        const haloScale = 1 + smoothBassRef.current * 0.08
-        const haloOpacity = 0.25 + smoothBassRef.current * 0.20 + (isSinging ? 0.10 : 0)
-        haloRef.current.style.transform = `scale(${haloScale})`
-        haloRef.current.style.opacity = `${Math.min(0.75, haloOpacity)}`
+        coverContainerRef.current.style.boxShadow = `0 16px 45px rgba(0,0,0,0.85), 0 0 ${20 + smoothBassRef.current * 32}px ${hexToRgba(vibe.primary, 0.28 + smoothBassRef.current * 0.22)}`
       }
 
-      // Render Silky Acoustic Breathing Halo around the Center Cover (Zero Flash / Zero Striking Rays)
+      // Render 360° Symmetrical Radial Music EQ Waveform Visualizer
       const canvas = circularCanvasRef.current
       if (canvas) {
         const rect = canvas.getBoundingClientRect()
@@ -295,56 +297,99 @@ export default function MotionLyrics() {
           ctx.clearRect(0, 0, reqW, reqH)
           const cx = reqW / 2
           const cy = reqH / 2
-          const baseR = Math.min(reqW, reqH) * 0.31
-          const spectrum = audioDsp.getFullSpectrumData()
 
-          // 1. Soft Breathing Acoustic Halo Bloom (Silky Liquid Glow)
-          const glowR = baseR * (1.10 + smoothBassRef.current * 0.16)
-          const glowGrad = ctx.createRadialGradient(cx, cy, baseR * 0.65, cx, cy, glowR)
-          glowGrad.addColorStop(0, hexToRgba(vibe.primary, 0.26 + smoothBassRef.current * 0.16))
-          glowGrad.addColorStop(0.50, hexToRgba(vibe.secondary, 0.12 + smoothMidRef.current * 0.12))
-          glowGrad.addColorStop(0.85, hexToRgba(vibe.accent, 0.04 + smoothTrebleRef.current * 0.06))
+          // Cover diameter in canvas pixels (canvas is 260% of cover width)
+          const coverD = Math.min(reqW, reqH) / 2.6
+          const baseR = coverD * 0.70
+
+          // Update smoothed 64-bin frequency spectrum for bouncy, instantaneous EQ tracking
+          const spectrum = audioDsp.getFullSpectrumData()
+          const smoothedSpec = smoothedSpectrumRef.current
+          for (let i = 0; i < 64; i++) {
+            const target = spectrum[i] || 0
+            const spd = target > smoothedSpec[i] ? 0.46 : 0.14
+            smoothedSpec[i] += (target - smoothedSpec[i]) * spd
+          }
+
+          // 1. Soft Breathing Velvet Halo (Ambient Cushion behind Bars — Zero Glare)
+          const glowR = baseR * (1.18 + smoothBassRef.current * 0.22)
+          const glowGrad = ctx.createRadialGradient(cx, cy, baseR * 0.55, cx, cy, glowR)
+          glowGrad.addColorStop(0, hexToRgba(vibe.primary, 0.24 + smoothBassRef.current * 0.16))
+          glowGrad.addColorStop(0.55, hexToRgba(vibe.secondary, 0.12 + smoothMidRef.current * 0.10))
+          glowGrad.addColorStop(0.85, hexToRgba(vibe.accent, 0.03 + smoothTrebleRef.current * 0.04))
           glowGrad.addColorStop(1, "transparent")
           ctx.fillStyle = glowGrad
           ctx.beginPath()
           ctx.arc(cx, cy, glowR, 0, Math.PI * 2)
           ctx.fill()
 
-          // 2. Silky Liquid Perimeter Ribbon (Zero Spikes / Zero Striking Rays)
-          const numPoints = 48
-          const rBase = baseR * (1.0 + smoothBassRef.current * 0.03)
-          const points: Array<{ x: number; y: number }> = []
+          // 2. Inner Resonant Anchor Ring (Subtle guide contour hugging cover perimeter)
+          ctx.beginPath()
+          ctx.arc(cx, cy, baseR * 1.025, 0, Math.PI * 2)
+          ctx.strokeStyle = hexToRgba(vibe.primary, 0.30 + smoothBassRef.current * 0.22)
+          ctx.lineWidth = 1.6 * dpr
+          ctx.stroke()
 
-          for (let i = 0; i < numPoints; i++) {
-            const angle = (i / numPoints) * Math.PI * 2 - Math.PI / 2
-            const specAmp = spectrum[i] || 0
-            // Gentle organic liquid contour undulation
-            const waveDrift = Math.sin(angle * 3 + audioTime * 1.6) * (baseR * 0.025)
-            const audioDisp = specAmp * (baseR * 0.07) * (0.4 + smoothBassRef.current * 0.6)
-            const r = rBase + waveDrift + audioDisp
-            const px = cx + Math.cos(angle) * r
-            const py = cy + Math.sin(angle) * r
-            points.push({ x: px, y: py })
+          // 3. 64-Bar Symmetrical Radial Music EQ Waveform (Dynamic Music Synchronization)
+          const N = 64
+          const rInner = baseR * 1.045
+          const crestPoints: Array<{ x: number; y: number }> = []
+
+          for (let i = 0; i < N; i++) {
+            const angle = (i / N) * Math.PI * 2 - Math.PI / 2
+
+            // Bilateral symmetry (left and right channels mirror for balanced audiophile aesthetic)
+            const half = N / 2 // 32
+            const specIdx = i < half
+              ? Math.floor((i / (half - 1)) * 42)
+              : Math.floor(((N - 1 - i) / (half - 1)) * 42)
+            const barAmp = smoothedSpec[specIdx] || 0
+
+            // Punchy, noticeable music reactivity: pulses strongly on kicks & dances on vocals!
+            const minBarLen = baseR * 0.038
+            const dynamicLen = (barAmp * 0.80 + smoothBassRef.current * 0.20) * (baseR * 0.36)
+            const totalBarLen = minBarLen + dynamicLen
+
+            const rOuter = rInner + totalBarLen
+            const x1 = cx + Math.cos(angle) * rInner
+            const y1 = cy + Math.sin(angle) * rInner
+            const x2 = cx + Math.cos(angle) * rOuter
+            const y2 = cy + Math.sin(angle) * rOuter
+
+            crestPoints.push({ x: x2, y: y2 })
+
+            // Soft jewel tones: smooth perimeter gradient without ANY eye-flashing white!
+            const colorFrac = Math.sin((i / N) * Math.PI)
+            const barAlpha = 0.45 + barAmp * 0.38
+            const barColor = colorFrac < 0.5
+              ? hexToRgba(vibe.primary, barAlpha)
+              : hexToRgba(vibe.secondary, barAlpha)
+
+            ctx.beginPath()
+            ctx.moveTo(x1, y1)
+            ctx.lineTo(x2, y2)
+            ctx.strokeStyle = barColor
+            ctx.lineWidth = 2.4 * dpr
+            ctx.lineCap = "round"
+            ctx.stroke()
           }
 
-          // Draw Smooth Liquid Spline Loop
-          if (points.length > 2) {
+          // 4. Smooth Liquid Wave Crest Ribbon (Living organic membrane connecting bar crests)
+          if (crestPoints.length > 2) {
             ctx.beginPath()
-            ctx.moveTo(points[0].x, points[0].y)
-            for (let i = 0; i < points.length; i++) {
-              const next = points[(i + 1) % points.length]
-              const midX = (points[i].x + next.x) / 2
-              const midY = (points[i].y + next.y) / 2
-              ctx.quadraticCurveTo(points[i].x, points[i].y, midX, midY)
+            const last = crestPoints[N - 1]
+            const first = crestPoints[0]
+            ctx.moveTo((last.x + first.x) / 2, (last.y + first.y) / 2)
+
+            for (let i = 0; i < N; i++) {
+              const next = crestPoints[(i + 1) % N]
+              const midX = (crestPoints[i].x + next.x) / 2
+              const midY = (crestPoints[i].y + next.y) / 2
+              ctx.quadraticCurveTo(crestPoints[i].x, crestPoints[i].y, midX, midY)
             }
             ctx.closePath()
 
-            const ringGrad = ctx.createLinearGradient(cx - baseR, cy - baseR, cx + baseR, cy + baseR)
-            ringGrad.addColorStop(0, hexToRgba(vibe.primary, 0.45))
-            ringGrad.addColorStop(0.5, hexToRgba(vibe.secondary, 0.35))
-            ringGrad.addColorStop(1, hexToRgba(vibe.neonHighlight, 0.30))
-
-            ctx.strokeStyle = ringGrad
+            ctx.strokeStyle = hexToRgba(vibe.secondary, 0.40 + smoothMidRef.current * 0.25)
             ctx.lineWidth = 1.6 * dpr
             ctx.shadowColor = vibe.primary
             ctx.shadowBlur = 8 * dpr
@@ -638,10 +683,10 @@ export default function MotionLyrics() {
               ref={circularCanvasRef}
               className="absolute pointer-events-none z-0"
               style={{
-                width: "220%",
-                height: "220%",
-                top: "-60%",
-                left: "-60%",
+                width: "260%",
+                height: "260%",
+                top: "-80%",
+                left: "-80%",
               }}
             />
 

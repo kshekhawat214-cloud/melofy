@@ -92,80 +92,76 @@ export default function ImmersiveVisualizer() {
     // ─── 2. Deep Velvet Foundation (Zero Dark Void) ───────────────────
     ctx.globalCompositeOperation = "source-over"
     
-    // Rich midnight indigo/violet base
+    // Rich midnight indigo/violet base (dark, velvety, and restful on the eyes)
     const baseGrad = ctx.createLinearGradient(0, 0, 0, H)
-    baseGrad.addColorStop(0, "#070614")
-    baseGrad.addColorStop(0.4, "#0c0924")
-    baseGrad.addColorStop(0.7, "#12092c")
-    baseGrad.addColorStop(1, "#070514")
+    baseGrad.addColorStop(0, "#06050e")
+    baseGrad.addColorStop(0.35, "#0a071a")
+    baseGrad.addColorStop(0.7, "#0f0924")
+    baseGrad.addColorStop(1, "#06050e")
     ctx.fillStyle = baseGrad
     ctx.fillRect(0, 0, W, H)
 
-    // Warm atmospheric wash across the whole viewport that breathes with music
+    // Soft atmospheric room wash (restrained, gentle velvety tones, zero glare)
     const roomWash = ctx.createRadialGradient(W * 0.5, H * 0.45, 0, W * 0.5, H * 0.5, Math.max(W, H) * 0.8)
-    roomWash.addColorStop(0, hexToRgba(vibe.primary, 0.24 + curOverall * 0.26))
-    roomWash.addColorStop(0.5, hexToRgba(vibe.secondary, 0.16 + curMid * 0.20))
-    roomWash.addColorStop(0.85, hexToRgba(vibe.accent, 0.08 + curBass * 0.14))
+    roomWash.addColorStop(0, hexToRgba(vibe.primary, 0.12 + curOverall * 0.10))
+    roomWash.addColorStop(0.5, hexToRgba(vibe.secondary, 0.08 + curMid * 0.08))
+    roomWash.addColorStop(0.85, hexToRgba(vibe.accent, 0.04 + curBass * 0.05))
     roomWash.addColorStop(1, "transparent")
     ctx.fillStyle = roomWash
     ctx.fillRect(0, 0, W, H)
 
-    // ─── 3. Apple Music-Style Morphing Liquid Aurora Nodes ────────────
-    // 4 organic, ultra-smooth fluid nodes overlapping seamlessly with additive blending
-    ctx.globalCompositeOperation = "screen"
+    // ─── 3. Soft Liquid Aurora Ambient Nodes (Zero Screen Bleach) ─────
+    // Keep source-over composite operation to prevent additive white flashes!
+    ctx.globalCompositeOperation = "source-over"
 
-    // NODE 1: Sub-Bass & Kick Core (Lower-Left to Center Groove)
-    // Radius swells dramatically on kicks and 808s!
+    // NODE 1: Sub-Bass & Kick Core (Lower-Left to Center Soft Swell)
     const n1X = W * (0.34 + Math.sin(t * 0.38) * 0.15)
     const n1Y = H * (0.64 + Math.cos(t * 0.32) * 0.13)
-    const n1R = minDim * (0.52 + curBass * 0.60)
-    const n1Alpha = 0.38 + curBass * 0.44
+    const n1R = minDim * (0.50 + curBass * 0.45)
+    const n1Alpha = 0.15 + curBass * 0.12
     const grad1 = ctx.createRadialGradient(n1X, n1Y, 0, n1X, n1Y, n1R)
     grad1.addColorStop(0, hexToRgba(vibe.primary, n1Alpha))
-    grad1.addColorStop(0.35, hexToRgba(vibe.primary, n1Alpha * 0.65))
-    grad1.addColorStop(0.70, hexToRgba(vibe.primary, n1Alpha * 0.18))
+    grad1.addColorStop(0.40, hexToRgba(vibe.primary, n1Alpha * 0.55))
+    grad1.addColorStop(0.75, hexToRgba(vibe.primary, n1Alpha * 0.12))
     grad1.addColorStop(1, "transparent")
     ctx.fillStyle = grad1
     ctx.fillRect(0, 0, W, H)
 
     // NODE 2: Vocal Presence & Melodic Energy (Upper-Right to Center)
-    // Flares with radiant illumination whenever the singer vocalizes!
     const n2X = W * (0.66 + Math.cos(t * 0.44) * 0.15)
     const n2Y = H * (0.36 + Math.sin(t * 0.36) * 0.13)
-    const n2R = minDim * (0.48 + curMid * 0.54)
-    const n2Alpha = 0.36 + curMid * 0.46
+    const n2R = minDim * (0.46 + curMid * 0.42)
+    const n2Alpha = 0.13 + curMid * 0.11
     const grad2 = ctx.createRadialGradient(n2X, n2Y, 0, n2X, n2Y, n2R)
     grad2.addColorStop(0, hexToRgba(vibe.secondary, n2Alpha))
-    grad2.addColorStop(0.40, hexToRgba(vibe.secondary, n2Alpha * 0.60))
-    grad2.addColorStop(0.75, hexToRgba(vibe.secondary, n2Alpha * 0.16))
+    grad2.addColorStop(0.45, hexToRgba(vibe.secondary, n2Alpha * 0.50))
+    grad2.addColorStop(0.80, hexToRgba(vibe.secondary, n2Alpha * 0.10))
     grad2.addColorStop(1, "transparent")
     ctx.fillStyle = grad2
     ctx.fillRect(0, 0, W, H)
 
     // NODE 3: Harmonic Drift & Ambient Horizon (Top-Left / Center Drift)
-    // Connects upper atmosphere with overall musical energy
     const n3X = W * (0.44 + Math.sin(t * 0.30 + 1.8) * 0.16)
     const n3Y = H * (0.28 + Math.cos(t * 0.26 + 1.2) * 0.14)
-    const n3R = minDim * (0.50 + curOverall * 0.44)
-    const n3Alpha = 0.30 + curOverall * 0.36
+    const n3R = minDim * (0.48 + curOverall * 0.36)
+    const n3Alpha = 0.10 + curOverall * 0.08
     const grad3 = ctx.createRadialGradient(n3X, n3Y, 0, n3X, n3Y, n3R)
     grad3.addColorStop(0, hexToRgba(vibe.accent, n3Alpha))
-    grad3.addColorStop(0.45, hexToRgba(vibe.accent, n3Alpha * 0.55))
-    grad3.addColorStop(0.80, hexToRgba(vibe.accent, n3Alpha * 0.14))
+    grad3.addColorStop(0.50, hexToRgba(vibe.accent, n3Alpha * 0.45))
+    grad3.addColorStop(0.85, hexToRgba(vibe.accent, n3Alpha * 0.08))
     grad3.addColorStop(1, "transparent")
     ctx.fillStyle = grad3
     ctx.fillRect(0, 0, W, H)
 
     // NODE 4: High Frequencies & Sparkling Instrument Atmosphere (Bottom-Right)
-    // Shimmers softly with hi-hats, acoustic guitar strings, and synths
     const n4X = W * (0.74 + Math.sin(t * 0.50 + 3.1) * 0.14)
     const n4Y = H * (0.76 + Math.cos(t * 0.40 + 2.5) * 0.12)
-    const n4R = minDim * (0.44 + curTreble * 0.48)
-    const n4Alpha = 0.26 + curTreble * 0.40
+    const n4R = minDim * (0.42 + curTreble * 0.38)
+    const n4Alpha = 0.08 + curTreble * 0.07
     const grad4 = ctx.createRadialGradient(n4X, n4Y, 0, n4X, n4Y, n4R)
-    grad4.addColorStop(0, hexToRgba(vibe.neonHighlight, n4Alpha))
-    grad4.addColorStop(0.40, hexToRgba(vibe.neonHighlight, n4Alpha * 0.50))
-    grad4.addColorStop(0.75, hexToRgba(vibe.neonHighlight, n4Alpha * 0.12))
+    grad4.addColorStop(0, hexToRgba(vibe.secondary, n4Alpha))
+    grad4.addColorStop(0.45, hexToRgba(vibe.secondary, n4Alpha * 0.40))
+    grad4.addColorStop(0.80, hexToRgba(vibe.secondary, n4Alpha * 0.08))
     grad4.addColorStop(1, "transparent")
     ctx.fillStyle = grad4
     ctx.fillRect(0, 0, W, H)
@@ -179,12 +175,12 @@ export default function ImmersiveVisualizer() {
 
       const px = p.x * W + Math.sin(t * 0.35 + p.seed) * 25
       const py = p.y * H
-      const pr = p.r * (1 + curTreble * 0.35)
-      const pAlpha = (0.05 + curTreble * 0.20) * Math.sin((p.y % 1) * Math.PI)
+      const pr = p.r * (1 + curTreble * 0.30)
+      const pAlpha = (0.02 + curTreble * 0.06) * Math.sin((p.y % 1) * Math.PI)
 
       if (pAlpha > 0.01) {
         const pGrad = ctx.createRadialGradient(px, py, 0, px, py, pr)
-        pGrad.addColorStop(0, hexToRgba(vibe.trebleSparkColor, pAlpha))
+        pGrad.addColorStop(0, hexToRgba(vibe.accent, pAlpha))
         pGrad.addColorStop(1, "transparent")
         ctx.fillStyle = pGrad
         ctx.beginPath()
@@ -193,36 +189,36 @@ export default function ImmersiveVisualizer() {
       }
     }
 
-    // ─── 6. Room-Wash Edge Ambilight ──────────────────────────────────
+    // ─── 5. Room-Wash Edge Soft Vignette Ambilight ─────────────────────
     ctx.globalCompositeOperation = "source-over"
 
-    // Floor Subwoofer Glow
-    const edgeBottomH = H * 0.22
+    // Floor Subwoofer Soft Glow
+    const edgeBottomH = H * 0.20
     const edgeBottom = ctx.createLinearGradient(0, H, 0, H - edgeBottomH)
-    edgeBottom.addColorStop(0, hexToRgba(vibe.primary, 0.32 + curBass * 0.40))
-    edgeBottom.addColorStop(0.6, hexToRgba(vibe.primary, 0.08 + curBass * 0.12))
+    edgeBottom.addColorStop(0, hexToRgba(vibe.primary, 0.12 + curBass * 0.12))
+    edgeBottom.addColorStop(0.6, hexToRgba(vibe.primary, 0.03 + curBass * 0.04))
     edgeBottom.addColorStop(1, "transparent")
     ctx.fillStyle = edgeBottom
     ctx.fillRect(0, H - edgeBottomH, W, edgeBottomH)
 
-    // Ceiling Vocal Wash
-    const edgeTopH = H * 0.16
+    // Ceiling Soft Ambient Wash
+    const edgeTopH = H * 0.14
     const edgeTop = ctx.createLinearGradient(0, 0, 0, edgeTopH)
-    edgeTop.addColorStop(0, hexToRgba(vibe.secondary, 0.22 + curMid * 0.30))
+    edgeTop.addColorStop(0, hexToRgba(vibe.secondary, 0.07 + curMid * 0.07))
     edgeTop.addColorStop(1, "transparent")
     ctx.fillStyle = edgeTop
     ctx.fillRect(0, 0, W, edgeTopH)
 
     // Lateral Wall Reflections
-    const edgeSideW = W * 0.10
+    const edgeSideW = W * 0.08
     const edgeLeft = ctx.createLinearGradient(0, 0, edgeSideW, 0)
-    edgeLeft.addColorStop(0, hexToRgba(vibe.accent, 0.14 + curOverall * 0.18))
+    edgeLeft.addColorStop(0, hexToRgba(vibe.accent, 0.04 + curOverall * 0.05))
     edgeLeft.addColorStop(1, "transparent")
     ctx.fillStyle = edgeLeft
     ctx.fillRect(0, 0, edgeSideW, H)
 
     const edgeRight = ctx.createLinearGradient(W, 0, W - edgeSideW, 0)
-    edgeRight.addColorStop(0, hexToRgba(vibe.primary, 0.14 + curOverall * 0.18))
+    edgeRight.addColorStop(0, hexToRgba(vibe.primary, 0.04 + curOverall * 0.05))
     edgeRight.addColorStop(1, "transparent")
     ctx.fillStyle = edgeRight
     ctx.fillRect(W - edgeSideW, 0, edgeSideW, H)
