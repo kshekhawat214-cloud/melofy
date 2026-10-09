@@ -670,10 +670,7 @@ export default function Player() {
                   audioRef.current.load()
                   applyCurrentVolume()
                   shouldPlayOnReadyRef.current = true
-                  if (isPlaying) {
-                    audioDsp.resume()
-                    audioRef.current.play().catch((err) => console.log("Auto-retry play prevented:", err))
-                  }
+                  audioDsp.resume()
                 }
               }, delay)
             } else {

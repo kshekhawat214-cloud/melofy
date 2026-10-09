@@ -28,6 +28,33 @@ def get_all_songs(db: Session = Depends(get_db)):
 def get_song(song_id: str, db: Session = Depends(get_db)):
     song = db.query(Song).filter(Song.id == song_id).first()
     if not song:
+        song = db.query(Song).filter(Song.id.ilike(song_id)).first()
+
+    # On-demand import if valid Spotify track ID but not yet in database
+    if not song and len(song_id) == 22 and "-" not in song_id:
+        try:
+            from services.downloader import _scrape_spotify_track, resolve_song_cover_and_album
+            track_data = _scrape_spotify_track(song_id)
+            if track_data:
+                cover, album = resolve_song_cover_and_album(song_id, track_data.get("title", ""), track_data.get("artist", ""), "")
+                song = Song(
+                    id=track_data.get("id") or song_id,
+                    title=track_data.get("title") or "Unknown Title",
+                    artist=track_data.get("artist") or "Unknown Artist",
+                    album=album or track_data.get("album") or "Single",
+                    duration=track_data.get("duration") or 0,
+                    thumbnail_url=cover or track_data.get("thumbnail_url"),
+                    source_url=f"https://open.spotify.com/track/{song_id}",
+                    audio_path="",
+                )
+                db.add(song)
+                db.commit()
+                db.refresh(song)
+                logger.info(f"On-demand created song record for {song_id} ('{song.title}')")
+        except Exception as e:
+            logger.warning(f"On-demand track scrape note: {e}")
+
+    if not song:
         raise HTTPException(status_code=404, detail="Song not found")
     return _serialize(song)
 
@@ -134,6 +161,33 @@ async def stream_audio(song_id: str, request: Request, background_tasks: Backgro
     logger.info(f"Stream request for song: {song_id}")
     try:
         song = db.query(Song).filter(Song.id == song_id).first()
+        if not song:
+            song = db.query(Song).filter(Song.id.ilike(song_id)).first()
+
+        # On-demand import if valid Spotify track ID but not yet in database
+        if not song and len(song_id) == 22 and "-" not in song_id:
+            try:
+                from services.downloader import _scrape_spotify_track, resolve_song_cover_and_album
+                track_data = _scrape_spotify_track(song_id)
+                if track_data:
+                    cover, album = resolve_song_cover_and_album(song_id, track_data.get("title", ""), track_data.get("artist", ""), "")
+                    song = Song(
+                        id=track_data.get("id") or song_id,
+                        title=track_data.get("title") or "Unknown Title",
+                        artist=track_data.get("artist") or "Unknown Artist",
+                        album=album or track_data.get("album") or "Single",
+                        duration=track_data.get("duration") or 0,
+                        thumbnail_url=cover or track_data.get("thumbnail_url"),
+                        source_url=f"https://open.spotify.com/track/{song_id}",
+                        audio_path="",
+                    )
+                    db.add(song)
+                    db.commit()
+                    db.refresh(song)
+                    logger.info(f"On-demand created song record for stream {song_id} ('{song.title}')")
+            except Exception as auto_ingest_err:
+                logger.warning(f"On-demand Spotify track auto-ingest note: {auto_ingest_err}")
+
         if not song:
             raise HTTPException(status_code=404, detail="Song not found")
 
@@ -265,6 +319,39 @@ async def stream_audio(song_id: str, request: Request, background_tasks: Backgro
                 db.refresh(song)
                 logger.info(f"Smart Resolver completed for '{song.title}' -> {path}")
             else:
+                # Emergency Tier 4: Direct YouTube Mobile Stream Fallback
+                try:
+                    from services.downloader import clean_song_title
+                    import yt_dlp
+                    import asyncio
+                    cl_title = clean_song_title(song.title)
+                    lead_art = song.artist.split(",")[0].strip() if song.artist else ""
+                    em_query = f"ytsearch1:{cl_title} {lead_art} official"
+                    logger.info(f"Emergency Tier 4 stream fallback for: {em_query}")
+                    ydl_em_opts = {
+                        "format": "bestaudio/best",
+                        "quiet": True,
+                        "noplaylist": True,
+                        "nocheckcertificate": True,
+                        "socket_timeout": 8,
+                        "extractor_args": {
+                            "youtube": {
+                                "player_client": ["android", "ios", "mweb", "web"]
+                            }
+                        },
+                        "http_headers": {
+                            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                        },
+                    }
+                    with yt_dlp.YoutubeDL(ydl_em_opts) as em_ydl:
+                        em_data = await asyncio.get_event_loop().run_in_executor(None, lambda: em_ydl.extract_info(em_query, download=False))
+                        em_entries = em_data.get("entries", []) if em_data else []
+                        if em_entries and em_entries[0].get("url"):
+                            logger.info(f"Emergency Tier 4 succeeded for '{song.title}' -> streaming immediately!")
+                            return proxy_remote_audio_stream(em_entries[0]["url"], request_range)
+                except Exception as em_err:
+                    logger.warning(f"Emergency Tier 4 stream fallback note: {em_err}")
+
                 raise HTTPException(status_code=502, detail="Smart Resolver could not locate audio stream")
         except HTTPException:
             raise

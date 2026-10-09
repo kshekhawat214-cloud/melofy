@@ -239,7 +239,11 @@ def is_generic_album(album: str) -> bool:
 
 COMPILATION_ALBUM_KEYWORDS = [
     "greatest hits", "best of", "collection", "anthology", "gold",
-    "the singles", "daddy cool", "hits", "deluxe edition", "anniversary"
+    "the singles", "daddy cool", "hits", "deluxe edition", "anniversary",
+    "vibes", "monsoon", "monsoon songs", "love songs", "indie hits", "indie campus",
+    "barish", "chill", "playlist", "radio", "top songs", "originals", "party",
+    "unplugged", "acoustic", "vol", "volume", "edition", "campus", "single",
+    "lofi", "chillhop", "essentials", "favorites", "spotlight"
 ]
 
 def are_artists_compatible(art1: str, art2: str) -> bool:
@@ -393,10 +397,22 @@ def resolve_jiosaavn_candidate(
                     continue
 
             # 3. Album / Movie Soundtrack Verification:
-            if expected_album:
+            # Singles and independent tracks are often packaged into various compilation/curated albums.
+            # Only enforce strict album checks if both the expected album and candidate album are distinct movie soundtracks.
+            c_exp_album = clean_album_name(expected_album).replace("\xa0", " ").strip().lower() if expected_album else ""
+            is_single_or_independent = (
+                not expected_album
+                or is_generic_album(expected_album)
+                or c_exp_album == c_lower
+                or c_lower in c_exp_album
+                or c_exp_album.startswith(c_lower)
+                or "single" in expected_album.lower()
+                or "ep" in expected_album.lower()
+            )
+
+            if expected_album and not is_single_or_independent:
                 raw_cand_alb = candidate.get("album") or candidate.get("more_info", {}).get("album") or ""
                 c_cand_album = clean_album_name(html.unescape(raw_cand_alb)).replace("\xa0", " ").strip().lower()
-                c_exp_album = clean_album_name(expected_album).replace("\xa0", " ").strip().lower()
                 
                 # If neither album is generic:
                 if c_cand_album and c_exp_album and not is_generic_album(c_cand_album) and not is_generic_album(c_exp_album):
@@ -447,7 +463,12 @@ async def resolve_direct_stream(expected_meta: Dict[str, Any]) -> Optional[Dict[
                 "quiet": True,
                 "noplaylist": True,
                 "nocheckcertificate": True,
-                "socket_timeout": 5,
+                "socket_timeout": 8,
+                "extractor_args": {
+                    "youtube": {
+                        "player_client": ["android", "ios", "mweb", "web"]
+                    }
+                },
             }
             with yt_dlp.YoutubeDL(ydl_opts_source) as ydl:
                 info = await loop.run_in_executor(None, lambda: ydl.extract_info(source_url, download=False))
@@ -482,7 +503,7 @@ async def resolve_direct_stream(expected_meta: Dict[str, Any]) -> Optional[Dict[
             ydl_opts_meta = {
                 "quiet": True,
                 "nocheckcertificate": True,
-                "socket_timeout": 5,
+                "socket_timeout": 6,
             }
             with yt_dlp.YoutubeDL(ydl_opts_meta) as ydl:
                 info = await loop.run_in_executor(None, lambda: ydl.extract_info(cand_url, download=False))
@@ -526,7 +547,15 @@ async def resolve_direct_stream(expected_meta: Dict[str, Any]) -> Optional[Dict[
             "quiet": True,
             "noplaylist": True,
             "nocheckcertificate": True,
-            "socket_timeout": 6,
+            "socket_timeout": 8,
+            "extractor_args": {
+                "youtube": {
+                    "player_client": ["android", "ios", "mweb", "web"]
+                }
+            },
+            "http_headers": {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            },
         }
         with yt_dlp.YoutubeDL(ydl_opts_yt) as ydl:
             yt_info = await loop.run_in_executor(
@@ -610,6 +639,11 @@ def ydl_opts(track_id, prefer_fast=True):
         "ignoreerrors": True,
         "socket_timeout": 15,
         "ffmpeg_location": ffmpeg_path,
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["android", "ios", "mweb", "web"]
+            }
+        },
         "http_headers": {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
