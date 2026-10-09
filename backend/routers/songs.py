@@ -3,7 +3,7 @@ Songs Router: CRUD + Stream audio + Download endpoint.
 Serves audio files as streams directly from local_storage.
 """
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse, PlainTextResponse
 from sqlalchemy.orm import Session
 from database.models import Song, get_db
 from pathlib import Path
@@ -284,8 +284,17 @@ def get_cover(song_id: str, db: Session = Depends(get_db)):
     if not song:
         raise HTTPException(status_code=404, detail="Song not found")
 
-    # If song has a mosaic thumbnail or missing thumbnail, resolve authentic cover live!
-    if not song.thumbnail_url or "mosaic.scdn.co" in song.thumbnail_url or (song.cover_path and "mosaic.scdn.co" in song.cover_path):
+    # Specific check for Training Season and broken Spotify CDN hash
+    if song.title and "training season" in song.title.lower():
+        return RedirectResponse(url="https://is1-ssl.mzstatic.com/image/thumb/Music126/v4/82/89/15/828915ea-d716-61c4-3de7-ef00c1f800fb/5054197853630.jpg/600x600bb.jpg")
+
+    # If song has a mosaic thumbnail or missing thumbnail or broken dead hash, resolve authentic cover live!
+    if (
+        not song.thumbnail_url 
+        or "mosaic.scdn.co" in song.thumbnail_url 
+        or "29599ef7cb0eec86ad6e6931" in (song.thumbnail_url or "")
+        or (song.cover_path and ("mosaic.scdn.co" in song.cover_path or "29599ef7cb0eec86ad6e6931" in song.cover_path))
+    ):
         from services.downloader import resolve_song_cover_and_album
         real_cov, real_alb = resolve_song_cover_and_album(song.id, song.title, song.artist, song.album)
         if real_cov and "mosaic.scdn.co" not in real_cov:
@@ -296,7 +305,7 @@ def get_cover(song_id: str, db: Session = Depends(get_db)):
         db.commit()
 
     # Check local cover on disk if available (and not a mosaic path)
-    if song.cover_path and "mosaic.scdn.co" not in song.cover_path and os.path.exists(song.cover_path):
+    if song.cover_path and "mosaic.scdn.co" not in song.cover_path and not song.cover_path.startswith("http") and os.path.exists(song.cover_path):
         path = Path(song.cover_path)
         ext = path.suffix.lower()
         media_map = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}
@@ -318,17 +327,63 @@ def repair_covers():
 
 
 @router.get("/songs/{song_id}/lyrics")
-def get_lyrics(song_id: str):
-    """Returns the lyrics for a song if available (.lrc or .txt)."""
+def get_lyrics(song_id: str, db: Session = Depends(get_db)):
+    """Returns synced/plain lyrics for a song. Auto-retrieves from LRCLIB if not cached."""
     lyrics_dir = Path("backend/local_storage/lyrics")
+    lyrics_dir.mkdir(parents=True, exist_ok=True)
     lrc_path = lyrics_dir / f"{song_id}.lrc"
     txt_path = lyrics_dir / f"{song_id}.txt"
 
+    # 1. Check local files
     if lrc_path.exists():
-        return FileResponse(path=str(lrc_path), media_type="text/plain")
+        return FileResponse(path=str(lrc_path), media_type="text/plain; charset=utf-8")
     elif txt_path.exists():
-        return FileResponse(path=str(txt_path), media_type="text/plain")
-    
+        return FileResponse(path=str(txt_path), media_type="text/plain; charset=utf-8")
+
+    # 2. Check Database record
+    song = db.query(Song).filter(Song.id == song_id).first()
+    if song and song.lyrics_lrc and song.lyrics_lrc.strip():
+        try:
+            lrc_path.write_text(song.lyrics_lrc, encoding="utf-8")
+        except Exception:
+            pass
+        return PlainTextResponse(content=song.lyrics_lrc, media_type="text/plain; charset=utf-8")
+
+    # 3. Dynamic LRCLIB lookup
+    if song:
+        try:
+            import urllib.request
+            import urllib.parse
+            import json
+            import re
+
+            # Clean track & artist name for optimal search accuracy
+            cleaned_title = re.sub(r"\(.*?\)|\[.*?\]", "", song.title).strip()
+            cleaned_artist = song.artist.split(",")[0].split("&")[0].split("feat.")[0].strip()
+
+            params = {
+                "artist_name": cleaned_artist,
+                "track_name": cleaned_title,
+            }
+            if song.duration and song.duration > 15:
+                params["duration"] = str(int(song.duration))
+
+            url = f"https://lrclib.net/api/get?{urllib.parse.urlencode(params)}"
+            req = urllib.request.Request(url, headers={"User-Agent": "Melofy/2.0 (music player)"})
+            with urllib.request.urlopen(req, timeout=3.5) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                lyrics_text = data.get("syncedLyrics") or data.get("plainLyrics")
+                if lyrics_text and lyrics_text.strip():
+                    song.lyrics_lrc = lyrics_text
+                    db.commit()
+                    try:
+                        lrc_path.write_text(lyrics_text, encoding="utf-8")
+                    except Exception:
+                        pass
+                    return PlainTextResponse(content=lyrics_text, media_type="text/plain; charset=utf-8")
+        except Exception as e:
+            logger.info(f"LRCLIB fetch notice for {song.title}: {e}")
+
     raise HTTPException(status_code=404, detail="Lyrics not found")
 
 
@@ -474,6 +529,7 @@ def _serialize(s: Song) -> dict:
         "genre": s.genre,
         "mood": s.mood,
         "energy": s.energy,
+        "tempo": s.tempo,
         "duration": s.duration,
         "popularity": s.popularity,
         "sourceUrl": s.source_url,
@@ -481,6 +537,7 @@ def _serialize(s: Song) -> dict:
         "streamUrl": stream_url,
         "downloadUrl": f"/api/songs/{s.id}/download",
         "coverUrl": f"/api/songs/{s.id}/cover",
+        "lyricsLrc": getattr(s, "lyrics_lrc", None),
         "isCached": is_cached,
         "createdAt": s.created_at.isoformat() if s.created_at else None,
     }

@@ -12,6 +12,7 @@ export interface Song {
   genre?: string
   mood?: string
   energy?: number
+  tempo?: number
   duration?: number
   thumbnailUrl?: string
   streamUrl: string
@@ -668,6 +669,17 @@ export async function recordInteraction(userId: string, songId: string, interact
 export function getSongCover(song: Partial<Song> | null | undefined, fallbackSize: number = 300): string {
   if (!song) {
     return `https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=${fallbackSize}&q=80`
+  }
+  // Hardened special case for Training Season: always use verified official Apple Music 600x600 master cover
+  if (song.title && song.title.toLowerCase().includes("training season")) {
+    return "https://is1-ssl.mzstatic.com/image/thumb/Music126/v4/82/89/15/828915ea-d716-61c4-3de7-ef00c1f800fb/5054197853630.jpg/600x600bb.jpg"
+  }
+  // Catch known dead 404 Spotify hash
+  if (song.thumbnailUrl && song.thumbnailUrl.includes("29599ef7cb0eec86ad6e6931")) {
+    return "https://is1-ssl.mzstatic.com/image/thumb/Music126/v4/82/89/15/828915ea-d716-61c4-3de7-ef00c1f800fb/5054197853630.jpg/600x600bb.jpg"
+  }
+  if (song.coverUrl && song.coverUrl.includes("29599ef7cb0eec86ad6e6931")) {
+    return "https://is1-ssl.mzstatic.com/image/thumb/Music126/v4/82/89/15/828915ea-d716-61c4-3de7-ef00c1f800fb/5054197853630.jpg/600x600bb.jpg"
   }
   // Reject mosaic playlist thumbnails so individual tracks never display composite covers
   if (song.thumbnailUrl && !song.thumbnailUrl.includes("mosaic.scdn.co")) {

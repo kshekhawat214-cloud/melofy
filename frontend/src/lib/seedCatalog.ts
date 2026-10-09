@@ -66,10 +66,10 @@ export const SEED_SONGS: Song[] = [
     mood: "energetic",
     energy: 0.84,
     duration: 220,
-    thumbnailUrl: "https://image-cdn-ak.spotifycdn.com/image/ab67616d0000b27387bcc972503c59ab023130b4",
+    thumbnailUrl: "https://is1-ssl.mzstatic.com/image/thumb/Music126/v4/82/89/15/828915ea-d716-61c4-3de7-ef00c1f800fb/5054197853630.jpg/600x600bb.jpg",
     streamUrl: "/api/songs/4jiOgEp2ZPjzoUF5DxaOjG/stream",
     downloadUrl: "/api/songs/4jiOgEp2ZPjzoUF5DxaOjG/download",
-    coverUrl: "/api/songs/4jiOgEp2ZPjzoUF5DxaOjG/cover",
+    coverUrl: "https://is1-ssl.mzstatic.com/image/thumb/Music126/v4/82/89/15/828915ea-d716-61c4-3de7-ef00c1f800fb/5054197853630.jpg/600x600bb.jpg",
   },
   {
     id: "3be9ACTxtcL6Zm4vJRUiPG",

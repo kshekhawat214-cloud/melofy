@@ -653,6 +653,9 @@ export default function Player() {
               src={coverUrl}
               alt="Album Art"
               className="w-10 h-10 rounded object-cover flex-shrink-0 bg-[#181818] shadow"
+              onError={(e) => {
+                e.currentTarget.src = "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=100&q=80"
+              }}
             />
             <div className="flex flex-col overflow-hidden min-w-0">
               <span className="text-xs font-bold text-white truncate">{currentSong.title}</span>
@@ -741,6 +744,9 @@ export default function Player() {
                 src={getSongCover(currentSong, 640)}
                 alt={currentSong.title}
                 className="w-full h-full object-cover"
+                onError={(e) => {
+                  e.currentTarget.src = "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=600&q=80"
+                }}
               />
             </div>
           </div>
@@ -899,7 +905,18 @@ export default function Player() {
           {currentSong ? (
             <>
               <div className="w-14 h-14 bg-[#282828] rounded-xl overflow-hidden relative group cursor-pointer shadow-lg flex-shrink-0 border border-white/10">
-                <img src={coverUrl} alt="Album Art" className="w-full h-full object-cover" />
+                <img
+                  src={coverUrl}
+                  alt="Album Art"
+                  className="w-full h-full object-cover"
+                  onError={(e) => {
+                    if (currentSong?.title?.toLowerCase().includes("training season")) {
+                      e.currentTarget.src = "https://is1-ssl.mzstatic.com/image/thumb/Music126/v4/82/89/15/828915ea-d716-61c4-3de7-ef00c1f800fb/5054197853630.jpg/600x600bb.jpg"
+                    } else {
+                      e.currentTarget.src = "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=300&q=80"
+                    }
+                  }}
+                />
               </div>
               <div className="flex flex-col justify-center overflow-hidden max-w-[150px] lg:max-w-xs">
                 <span className="text-sm font-semibold text-white hover:underline truncate cursor-pointer">
@@ -1254,6 +1271,15 @@ export default function Player() {
             </div>
 
             <div className="flex items-center space-x-3">
+              {/* Lyrics Toggle Button */}
+              <button
+                onClick={toggleLyrics}
+                className="p-2.5 text-[#b3b3b3] hover:text-white rounded-full bg-white/5 hover:bg-white/10 transition cursor-pointer"
+                title="Lyrics"
+              >
+                <Mic2 size={20} />
+              </button>
+
               {/* Ambient Aura Toggle */}
               <button
                 onClick={toggleAmbientLighting}
@@ -1292,6 +1318,13 @@ export default function Player() {
                 src={getSongCover(currentSong, 640)}
                 alt={currentSong.title}
                 className="w-full h-full object-cover"
+                onError={(e) => {
+                  if (currentSong?.title?.toLowerCase().includes("training season")) {
+                    e.currentTarget.src = "https://is1-ssl.mzstatic.com/image/thumb/Music126/v4/82/89/15/828915ea-d716-61c4-3de7-ef00c1f800fb/5054197853630.jpg/600x600bb.jpg"
+                  } else {
+                    e.currentTarget.src = "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=640&q=80"
+                  }
+                }}
               />
             </div>
 

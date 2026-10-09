@@ -43,6 +43,13 @@ function SongCard({ song, shelfSongs, isGrid = false }: { song: Song; shelfSongs
           className="absolute inset-0 w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
           alt={song.title}
           loading="lazy"
+          onError={(e) => {
+            if (song.title && song.title.toLowerCase().includes("training season")) {
+              e.currentTarget.src = "https://is1-ssl.mzstatic.com/image/thumb/Music126/v4/82/89/15/828915ea-d716-61c4-3de7-ef00c1f800fb/5054197853630.jpg/600x600bb.jpg"
+            } else {
+              e.currentTarget.src = "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=300&q=80"
+            }
+          }}
         />
 
         {/* Floating Play Button (Always visible on mobile, hover-reveal on desktop) */}
@@ -149,7 +156,7 @@ export default function Home() {
   const ambientTone = getSongMoodColor(currentSong?.id || quickAccessSongs[0]?.id || "tunely")
 
   return (
-    <div id="main-scroll-container" className={`flex-1 overflow-y-auto bg-gradient-to-b ${ambientTone.bgFrom}/40 via-[#101014]/80 to-[#0a0a0d]/90 h-full relative scroll-smooth text-white scrollbar-hidden transition-colors duration-700`}>
+    <div id="main-scroll-container" className={`flex-1 overflow-y-auto bg-gradient-to-b ${ambientTone.bgFrom}/20 via-black/35 to-black/65 h-full relative scroll-smooth text-white scrollbar-hidden transition-colors duration-700`}>
       <Header />
 
       <main className="p-6 pb-36 space-y-8">
@@ -170,7 +177,18 @@ export default function Home() {
                   onClick={() => playSongWithQueue(song, quickAccessSongs)}
                   className="liquid-glass-card rounded-xl flex items-center group cursor-pointer overflow-hidden h-16 relative pr-3 transition-all duration-300"
                 >
-                  <img src={cover} className="h-full w-16 object-cover flex-shrink-0" alt="" />
+                  <img
+                    src={cover}
+                    className="h-full w-16 object-cover flex-shrink-0"
+                    alt=""
+                    onError={(e) => {
+                      if (song.title && song.title.toLowerCase().includes("training season")) {
+                        e.currentTarget.src = "https://is1-ssl.mzstatic.com/image/thumb/Music126/v4/82/89/15/828915ea-d716-61c4-3de7-ef00c1f800fb/5054197853630.jpg/600x600bb.jpg"
+                      } else {
+                        e.currentTarget.src = "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=100&q=80"
+                      }
+                    }}
+                  />
                   <span className={`font-bold text-sm px-3.5 truncate flex-1 ${isCurrent ? "text-[#1db954]" : "text-white"}`}>
                     {song.title}
                   </span>
