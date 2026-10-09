@@ -208,10 +208,7 @@ export default function MotionLyrics() {
   const coverContainerRef = useRef<HTMLDivElement | null>(null)
   const haloRef = useRef<HTMLDivElement | null>(null)
   const circularCanvasRef = useRef<HTMLCanvasElement | null>(null)
-  const smoothBassRef = useRef(0)
-  const smoothMidRef = useRef(0)
-  const smoothTrebleRef = useRef(0)
-  const smoothedSpectrumRef = useRef<Float32Array>(new Float32Array(64))
+  const smoothBeatRef = useRef(0)
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
   // Soft mood vibe for subtle text glow
@@ -264,24 +261,19 @@ export default function MotionLyrics() {
       // Update Center Cover Pulse & Halo Bloom directly on DOM (60 FPS, 0 React re-renders)
       const raw = audioDsp.getReactivityData()
 
-      // High-precision musical envelope follower (instant punchy attack, luxurious velvety decay)
-      const bassSpeed = raw.bassLevel > smoothBassRef.current ? 0.44 : 0.14
-      smoothBassRef.current += (raw.bassLevel - smoothBassRef.current) * bassSpeed
-
-      const midSpeed = raw.midLevel > smoothMidRef.current ? 0.38 : 0.12
-      smoothMidRef.current += (raw.midLevel - smoothMidRef.current) * midSpeed
-
-      const trebleSpeed = raw.trebleLevel > smoothTrebleRef.current ? 0.38 : 0.12
-      smoothTrebleRef.current += (raw.trebleLevel - smoothTrebleRef.current) * trebleSpeed
+      // ASUS Aura Sync Beat Follower (reacts strictly to rhythmic drum beats & kicks)
+      const beatSpeed = raw.beatLevel > smoothBeatRef.current ? 0.46 : 0.14
+      smoothBeatRef.current += (raw.beatLevel - smoothBeatRef.current) * beatSpeed
+      const curBeat = isPlaying ? smoothBeatRef.current : 0
 
       if (coverContainerRef.current) {
-        // Dynamic musical heartbeat pulse on kicks & downbeats (~3.8% scale)
-        const kickScale = 1 + smoothBassRef.current * 0.038
+        // Dynamic musical heartbeat pulse on beats & downbeats (~3.8% scale)
+        const kickScale = 1 + curBeat * 0.038
         coverContainerRef.current.style.transform = `scale(${kickScale})`
-        coverContainerRef.current.style.boxShadow = `0 16px 45px rgba(0,0,0,0.85), 0 0 ${20 + smoothBassRef.current * 32}px ${hexToRgba(vibe.primary, 0.28 + smoothBassRef.current * 0.22)}`
+        coverContainerRef.current.style.boxShadow = `0 16px 45px rgba(0,0,0,0.85), 0 0 ${20 + curBeat * 32}px ${hexToRgba(vibe.primary, 0.28 + curBeat * 0.22)}`
       }
 
-      // Render 360° Symmetrical Radial Music EQ Waveform Visualizer
+      // Render 360° Symmetrical ASUS Aura Sync Beat Waveform Visualizer
       const canvas = circularCanvasRef.current
       if (canvas) {
         const rect = canvas.getBoundingClientRect()
@@ -302,21 +294,12 @@ export default function MotionLyrics() {
           const coverD = Math.min(reqW, reqH) / 2.6
           const baseR = coverD * 0.70
 
-          // Update smoothed 64-bin frequency spectrum for bouncy, instantaneous EQ tracking
-          const spectrum = audioDsp.getFullSpectrumData()
-          const smoothedSpec = smoothedSpectrumRef.current
-          for (let i = 0; i < 64; i++) {
-            const target = spectrum[i] || 0
-            const spd = target > smoothedSpec[i] ? 0.46 : 0.14
-            smoothedSpec[i] += (target - smoothedSpec[i]) * spd
-          }
-
           // 1. Soft Breathing Velvet Halo (Ambient Cushion behind Bars — Zero Glare)
-          const glowR = baseR * (1.18 + smoothBassRef.current * 0.22)
+          const glowR = baseR * (1.16 + curBeat * 0.24)
           const glowGrad = ctx.createRadialGradient(cx, cy, baseR * 0.55, cx, cy, glowR)
-          glowGrad.addColorStop(0, hexToRgba(vibe.primary, 0.24 + smoothBassRef.current * 0.16))
-          glowGrad.addColorStop(0.55, hexToRgba(vibe.secondary, 0.12 + smoothMidRef.current * 0.10))
-          glowGrad.addColorStop(0.85, hexToRgba(vibe.accent, 0.03 + smoothTrebleRef.current * 0.04))
+          glowGrad.addColorStop(0, hexToRgba(vibe.primary, 0.22 + curBeat * 0.18))
+          glowGrad.addColorStop(0.55, hexToRgba(vibe.secondary, 0.10 + curBeat * 0.12))
+          glowGrad.addColorStop(0.85, hexToRgba(vibe.accent, 0.02 + curBeat * 0.04))
           glowGrad.addColorStop(1, "transparent")
           ctx.fillStyle = glowGrad
           ctx.beginPath()
@@ -326,11 +309,11 @@ export default function MotionLyrics() {
           // 2. Inner Resonant Anchor Ring (Subtle guide contour hugging cover perimeter)
           ctx.beginPath()
           ctx.arc(cx, cy, baseR * 1.025, 0, Math.PI * 2)
-          ctx.strokeStyle = hexToRgba(vibe.primary, 0.30 + smoothBassRef.current * 0.22)
+          ctx.strokeStyle = hexToRgba(vibe.primary, 0.28 + curBeat * 0.24)
           ctx.lineWidth = 1.6 * dpr
           ctx.stroke()
 
-          // 3. 64-Bar Symmetrical Radial Music EQ Waveform (Dynamic Music Synchronization)
+          // 3. 64-Bar Symmetrical Radial Music Waveform (Reacts EXCLUSIVELY to Beats)
           const N = 64
           const rInner = baseR * 1.045
           const crestPoints: Array<{ x: number; y: number }> = []
@@ -338,16 +321,12 @@ export default function MotionLyrics() {
           for (let i = 0; i < N; i++) {
             const angle = (i / N) * Math.PI * 2 - Math.PI / 2
 
-            // Bilateral symmetry (left and right channels mirror for balanced audiophile aesthetic)
-            const half = N / 2 // 32
-            const specIdx = i < half
-              ? Math.floor((i / (half - 1)) * 42)
-              : Math.floor(((N - 1 - i) / (half - 1)) * 42)
-            const barAmp = smoothedSpec[specIdx] || 0
-
-            // Punchy, noticeable music reactivity: pulses strongly on kicks & dances on vocals!
+            // ASUS Aura Sync harmonic spatial wave contour around the circle:
+            // Bilaterally mirrored so left and right sides pulse synchronously with the beat
+            const waveFrac = Math.sin((i / N) * Math.PI) // 0 at top, 1 at bottom
+            const harmonicFactor = 0.70 + 0.30 * Math.sin((i / N) * Math.PI * 4 + audioTime * 1.2)
             const minBarLen = baseR * 0.038
-            const dynamicLen = (barAmp * 0.80 + smoothBassRef.current * 0.20) * (baseR * 0.36)
+            const dynamicLen = curBeat * (baseR * 0.35) * harmonicFactor
             const totalBarLen = minBarLen + dynamicLen
 
             const rOuter = rInner + totalBarLen
@@ -358,10 +337,9 @@ export default function MotionLyrics() {
 
             crestPoints.push({ x: x2, y: y2 })
 
-            // Soft jewel tones: smooth perimeter gradient without ANY eye-flashing white!
-            const colorFrac = Math.sin((i / N) * Math.PI)
-            const barAlpha = 0.45 + barAmp * 0.38
-            const barColor = colorFrac < 0.5
+            // Soft jewel tones: smooth perimeter gradient without ANY eye-flashing white
+            const barAlpha = 0.42 + curBeat * 0.40
+            const barColor = waveFrac < 0.5
               ? hexToRgba(vibe.primary, barAlpha)
               : hexToRgba(vibe.secondary, barAlpha)
 
@@ -389,7 +367,7 @@ export default function MotionLyrics() {
             }
             ctx.closePath()
 
-            ctx.strokeStyle = hexToRgba(vibe.secondary, 0.40 + smoothMidRef.current * 0.25)
+            ctx.strokeStyle = hexToRgba(vibe.secondary, 0.38 + curBeat * 0.30)
             ctx.lineWidth = 1.6 * dpr
             ctx.shadowColor = vibe.primary
             ctx.shadowBlur = 8 * dpr

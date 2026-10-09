@@ -24,15 +24,12 @@ export default function ImmersiveVisualizer() {
     )
   }, [currentSong?.id, currentSong?.title, currentSong?.artist, currentSong?.genre, currentSong?.energy])
 
-  // Asymmetrical audio envelope tracking (fast attack, silky smooth decay)
+  // Asymmetrical beat pulse tracking (Aura Sync: reacts strictly to beats)
   const audioRef = useRef({
-    bass: 0,
-    mid: 0,
-    treble: 0,
-    overall: 0,
+    beat: 0,
   })
 
-  // Soft floating stardust motes (out-of-focus bokeh shimmer for treble air)
+  // Soft floating stardust motes (ambient bokeh shimmer that breathes with the beat)
   const stardustRef = useRef<
     Array<{ x: number; y: number; r: number; speedY: number; seed: number }>
   >([])
@@ -51,7 +48,7 @@ export default function ImmersiveVisualizer() {
     stardustRef.current = pts
   }, [])
 
-  // ─── Render Loop: Apple Music Liquid Aurora Mesh Engine ───────────
+  // ─── Render Loop: ASUS Aura Sync Music Beat Engine ─────────────────
   const render = useCallback((timestamp: number) => {
     const canvas = canvasRef.current
     if (!canvas) return
@@ -69,25 +66,19 @@ export default function ImmersiveVisualizer() {
     const audioEl = typeof document !== "undefined" ? document.querySelector("audio") : null
     const isAudioActive = Boolean(audioEl && !audioEl.paused)
     const audioTime = audioEl ? audioEl.currentTime : 0
-    // Lock visualizer evolution clock directly to real-time audio playback
     const t = isAudioActive ? audioTime : timeRef.current
 
-    // ─── 1. Asymmetrical Audio Dynamics ──────────────────────────────
+    // ─── 1. ASUS Aura Sync Beat Reaction (Pure Beat Tracking) ──────────
     const raw = audioDsp.getReactivityData()
     const a = audioRef.current
 
-    // Snappy attack on kicks/vocals, luxurious velvet decay
-    const attack = 0.32
-    const decay = 0.12
-    a.bass += (raw.bassLevel - a.bass) * (raw.bassLevel > a.bass ? attack : decay)
-    a.mid += (raw.midLevel - a.mid) * (raw.midLevel > a.mid ? attack : decay)
-    a.treble += (raw.trebleLevel - a.treble) * (raw.trebleLevel > a.treble ? attack : decay)
-    a.overall += (raw.overallLevel - a.overall) * (raw.overallLevel > a.overall ? attack : decay)
+    // Instant attack on beat transients, velvety release between beats
+    const beatAttack = 0.46
+    const beatDecay = 0.12
+    a.beat += (raw.beatLevel - a.beat) * (raw.beatLevel > a.beat ? beatAttack : beatDecay)
 
-    const curBass = isPlaying ? Math.max(a.bass, 0.14) : 0.10
-    const curMid = isPlaying ? Math.max(a.mid, 0.12) : 0.08
-    const curTreble = isPlaying ? Math.max(a.treble, 0.10) : 0.06
-    const curOverall = isPlaying ? Math.max(a.overall, 0.14) : 0.08
+    // Beat pulse intensity (calm 0 at rest, pulses on kick drums & downbeats)
+    const curBeat = isPlaying ? a.beat : 0
 
     // ─── 2. Deep Velvet Foundation (Zero Dark Void) ───────────────────
     ctx.globalCompositeOperation = "source-over"
@@ -101,24 +92,23 @@ export default function ImmersiveVisualizer() {
     ctx.fillStyle = baseGrad
     ctx.fillRect(0, 0, W, H)
 
-    // Soft atmospheric room wash (restrained, gentle velvety tones, zero glare)
+    // Soft atmospheric room wash (pulses gently with the beat rhythm, zero glare)
     const roomWash = ctx.createRadialGradient(W * 0.5, H * 0.45, 0, W * 0.5, H * 0.5, Math.max(W, H) * 0.8)
-    roomWash.addColorStop(0, hexToRgba(vibe.primary, 0.12 + curOverall * 0.10))
-    roomWash.addColorStop(0.5, hexToRgba(vibe.secondary, 0.08 + curMid * 0.08))
-    roomWash.addColorStop(0.85, hexToRgba(vibe.accent, 0.04 + curBass * 0.05))
+    roomWash.addColorStop(0, hexToRgba(vibe.primary, 0.08 + curBeat * 0.12))
+    roomWash.addColorStop(0.5, hexToRgba(vibe.secondary, 0.05 + curBeat * 0.08))
+    roomWash.addColorStop(0.85, hexToRgba(vibe.accent, 0.02 + curBeat * 0.04))
     roomWash.addColorStop(1, "transparent")
     ctx.fillStyle = roomWash
     ctx.fillRect(0, 0, W, H)
 
-    // ─── 3. Soft Liquid Aurora Ambient Nodes (Zero Screen Bleach) ─────
-    // Keep source-over composite operation to prevent additive white flashes!
+    // ─── 3. Soft Liquid Aurora Ambient Nodes (Syncs Exclusively to Beats) ─
     ctx.globalCompositeOperation = "source-over"
 
-    // NODE 1: Sub-Bass & Kick Core (Lower-Left to Center Soft Swell)
+    // NODE 1: Sub-Bass Kick Aurora Node (Lower-Left to Center Soft Swell)
     const n1X = W * (0.34 + Math.sin(t * 0.38) * 0.15)
     const n1Y = H * (0.64 + Math.cos(t * 0.32) * 0.13)
-    const n1R = minDim * (0.50 + curBass * 0.45)
-    const n1Alpha = 0.15 + curBass * 0.12
+    const n1R = minDim * (0.46 + curBeat * 0.42)
+    const n1Alpha = 0.10 + curBeat * 0.14
     const grad1 = ctx.createRadialGradient(n1X, n1Y, 0, n1X, n1Y, n1R)
     grad1.addColorStop(0, hexToRgba(vibe.primary, n1Alpha))
     grad1.addColorStop(0.40, hexToRgba(vibe.primary, n1Alpha * 0.55))
@@ -127,11 +117,11 @@ export default function ImmersiveVisualizer() {
     ctx.fillStyle = grad1
     ctx.fillRect(0, 0, W, H)
 
-    // NODE 2: Vocal Presence & Melodic Energy (Upper-Right to Center)
+    // NODE 2: Melodic Counter-Beat Node (Upper-Right to Center Soft Pulse)
     const n2X = W * (0.66 + Math.cos(t * 0.44) * 0.15)
     const n2Y = H * (0.36 + Math.sin(t * 0.36) * 0.13)
-    const n2R = minDim * (0.46 + curMid * 0.42)
-    const n2Alpha = 0.13 + curMid * 0.11
+    const n2R = minDim * (0.42 + curBeat * 0.38)
+    const n2Alpha = 0.08 + curBeat * 0.12
     const grad2 = ctx.createRadialGradient(n2X, n2Y, 0, n2X, n2Y, n2R)
     grad2.addColorStop(0, hexToRgba(vibe.secondary, n2Alpha))
     grad2.addColorStop(0.45, hexToRgba(vibe.secondary, n2Alpha * 0.50))
@@ -140,11 +130,11 @@ export default function ImmersiveVisualizer() {
     ctx.fillStyle = grad2
     ctx.fillRect(0, 0, W, H)
 
-    // NODE 3: Harmonic Drift & Ambient Horizon (Top-Left / Center Drift)
+    // NODE 3: Harmonic Horizon Node (Top-Left / Center Ambient Breath)
     const n3X = W * (0.44 + Math.sin(t * 0.30 + 1.8) * 0.16)
     const n3Y = H * (0.28 + Math.cos(t * 0.26 + 1.2) * 0.14)
-    const n3R = minDim * (0.48 + curOverall * 0.36)
-    const n3Alpha = 0.10 + curOverall * 0.08
+    const n3R = minDim * (0.44 + curBeat * 0.34)
+    const n3Alpha = 0.06 + curBeat * 0.10
     const grad3 = ctx.createRadialGradient(n3X, n3Y, 0, n3X, n3Y, n3R)
     grad3.addColorStop(0, hexToRgba(vibe.accent, n3Alpha))
     grad3.addColorStop(0.50, hexToRgba(vibe.accent, n3Alpha * 0.45))
@@ -153,11 +143,11 @@ export default function ImmersiveVisualizer() {
     ctx.fillStyle = grad3
     ctx.fillRect(0, 0, W, H)
 
-    // NODE 4: High Frequencies & Sparkling Instrument Atmosphere (Bottom-Right)
+    // NODE 4: Peripheral Glow Node (Bottom-Right Soft Cadence)
     const n4X = W * (0.74 + Math.sin(t * 0.50 + 3.1) * 0.14)
     const n4Y = H * (0.76 + Math.cos(t * 0.40 + 2.5) * 0.12)
-    const n4R = minDim * (0.42 + curTreble * 0.38)
-    const n4Alpha = 0.08 + curTreble * 0.07
+    const n4R = minDim * (0.38 + curBeat * 0.30)
+    const n4Alpha = 0.05 + curBeat * 0.08
     const grad4 = ctx.createRadialGradient(n4X, n4Y, 0, n4X, n4Y, n4R)
     grad4.addColorStop(0, hexToRgba(vibe.secondary, n4Alpha))
     grad4.addColorStop(0.45, hexToRgba(vibe.secondary, n4Alpha * 0.40))
@@ -166,7 +156,7 @@ export default function ImmersiveVisualizer() {
     ctx.fillStyle = grad4
     ctx.fillRect(0, 0, W, H)
 
-    // ─── 4. Soft Out-Of-Focus Stardust Bokeh (Highs & Air) ────────────
+    // ─── 4. Soft Out-Of-Focus Stardust Bokeh (Breathes with Beat) ─────
     const pts = stardustRef.current
     for (let i = 0; i < pts.length; i++) {
       const p = pts[i]
@@ -175,8 +165,8 @@ export default function ImmersiveVisualizer() {
 
       const px = p.x * W + Math.sin(t * 0.35 + p.seed) * 25
       const py = p.y * H
-      const pr = p.r * (1 + curTreble * 0.30)
-      const pAlpha = (0.02 + curTreble * 0.06) * Math.sin((p.y % 1) * Math.PI)
+      const pr = p.r * (1 + curBeat * 0.25)
+      const pAlpha = (0.02 + curBeat * 0.05) * Math.sin((p.y % 1) * Math.PI)
 
       if (pAlpha > 0.01) {
         const pGrad = ctx.createRadialGradient(px, py, 0, px, py, pr)
@@ -192,11 +182,11 @@ export default function ImmersiveVisualizer() {
     // ─── 5. Room-Wash Edge Soft Vignette Ambilight ─────────────────────
     ctx.globalCompositeOperation = "source-over"
 
-    // Floor Subwoofer Soft Glow
+    // Floor Subwoofer Soft Beat Glow
     const edgeBottomH = H * 0.20
     const edgeBottom = ctx.createLinearGradient(0, H, 0, H - edgeBottomH)
-    edgeBottom.addColorStop(0, hexToRgba(vibe.primary, 0.12 + curBass * 0.12))
-    edgeBottom.addColorStop(0.6, hexToRgba(vibe.primary, 0.03 + curBass * 0.04))
+    edgeBottom.addColorStop(0, hexToRgba(vibe.primary, 0.08 + curBeat * 0.12))
+    edgeBottom.addColorStop(0.6, hexToRgba(vibe.primary, 0.02 + curBeat * 0.04))
     edgeBottom.addColorStop(1, "transparent")
     ctx.fillStyle = edgeBottom
     ctx.fillRect(0, H - edgeBottomH, W, edgeBottomH)
@@ -204,7 +194,7 @@ export default function ImmersiveVisualizer() {
     // Ceiling Soft Ambient Wash
     const edgeTopH = H * 0.14
     const edgeTop = ctx.createLinearGradient(0, 0, 0, edgeTopH)
-    edgeTop.addColorStop(0, hexToRgba(vibe.secondary, 0.07 + curMid * 0.07))
+    edgeTop.addColorStop(0, hexToRgba(vibe.secondary, 0.05 + curBeat * 0.07))
     edgeTop.addColorStop(1, "transparent")
     ctx.fillStyle = edgeTop
     ctx.fillRect(0, 0, W, edgeTopH)
@@ -212,13 +202,13 @@ export default function ImmersiveVisualizer() {
     // Lateral Wall Reflections
     const edgeSideW = W * 0.08
     const edgeLeft = ctx.createLinearGradient(0, 0, edgeSideW, 0)
-    edgeLeft.addColorStop(0, hexToRgba(vibe.accent, 0.04 + curOverall * 0.05))
+    edgeLeft.addColorStop(0, hexToRgba(vibe.accent, 0.03 + curBeat * 0.05))
     edgeLeft.addColorStop(1, "transparent")
     ctx.fillStyle = edgeLeft
     ctx.fillRect(0, 0, edgeSideW, H)
 
     const edgeRight = ctx.createLinearGradient(W, 0, W - edgeSideW, 0)
-    edgeRight.addColorStop(0, hexToRgba(vibe.primary, 0.04 + curOverall * 0.05))
+    edgeRight.addColorStop(0, hexToRgba(vibe.primary, 0.03 + curBeat * 0.05))
     edgeRight.addColorStop(1, "transparent")
     ctx.fillStyle = edgeRight
     ctx.fillRect(W - edgeSideW, 0, edgeSideW, H)

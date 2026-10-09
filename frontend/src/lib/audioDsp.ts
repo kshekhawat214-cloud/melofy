@@ -41,6 +41,11 @@ class AudioDspEngine {
   private analyser: AnalyserNode | null = null
   private freqData: Uint8Array<ArrayBuffer> | null = null
 
+  // ASUS Aura Sync Beat Transient Detector
+  private beatEnergyHistory: number[] = []
+  private lastBeatTimestamp = 0
+  private beatDecayEnvelope = 0
+
   private currentMode: SoundstageMode = "pure"
   private isInitialized = false
 
@@ -145,6 +150,8 @@ class AudioDspEngine {
    * Retrieves real-time audio metrics for dynamic visualizers and reactive ambient lighting.
    */
   public getReactivityData(): {
+    beatLevel: number
+    isBeat: boolean
     bassLevel: number
     midLevel: number
     trebleLevel: number
@@ -180,8 +187,43 @@ class AudioDspEngine {
         bassSum += this.freqData[i]
       }
       let bassLevel = bassSum / ((bassBinsEnd - bassBinsStart) * 255)
-      // Gain boost for visible, punchy dynamics
       bassLevel = Math.min(1.0, Math.pow(bassLevel, 0.95) * 2.8)
+
+      // ASUS Aura Sync Kick & Sub-Bass Transient Detection (bins 1 to 8: ~35Hz - 180Hz)
+      let kickSum = 0
+      const kickBinsEnd = Math.min(8, binCount)
+      for (let i = 1; i < kickBinsEnd; i++) {
+        kickSum += this.freqData[i]
+      }
+      const instantKickEnergy = kickSum / ((kickBinsEnd - 1) * 255)
+
+      // Maintain running average of sub-bass energy
+      this.beatEnergyHistory.push(instantKickEnergy)
+      if (this.beatEnergyHistory.length > 35) {
+        this.beatEnergyHistory.shift()
+      }
+      const avgKickEnergy = this.beatEnergyHistory.reduce((s, v) => s + v, 0) / this.beatEnergyHistory.length
+
+      const now = typeof performance !== "undefined" ? performance.now() / 1000 : Date.now() / 1000
+      const timeSinceLastBeat = now - this.lastBeatTimestamp
+      let isBeat = false
+
+      // Beat transient detector (threshold gate)
+      if (
+        instantKickEnergy > avgKickEnergy * 1.30 &&
+        instantKickEnergy > 0.12 &&
+        timeSinceLastBeat > 0.18
+      ) {
+        this.beatDecayEnvelope = Math.min(1.0, 0.45 + (instantKickEnergy / (avgKickEnergy + 0.05)) * 0.50)
+        this.lastBeatTimestamp = now
+        isBeat = true
+      } else {
+        this.beatDecayEnvelope *= 0.88
+        if (this.beatDecayEnvelope < 0.02) {
+          this.beatDecayEnvelope = 0
+        }
+      }
+      const beatLevel = Math.min(1.0, this.beatDecayEnvelope)
 
       // 2. Mid / Vocal range (bins 10 to 45: ~250Hz - 2000Hz)
       let midSum = 0
@@ -208,24 +250,26 @@ class AudioDspEngine {
         return this.getSynthesizedReactivity()
       }
 
-      return { bassLevel, midLevel, trebleLevel, overallLevel }
+      return { beatLevel, isBeat, bassLevel, midLevel, trebleLevel, overallLevel }
     } catch {
       return this.getSynthesizedReactivity()
     }
   }
 
   private getSynthesizedReactivity(): {
+    beatLevel: number
+    isBeat: boolean
     bassLevel: number
     midLevel: number
     trebleLevel: number
     overallLevel: number
   } {
     if (typeof window === "undefined") {
-      return { bassLevel: 0, midLevel: 0, trebleLevel: 0, overallLevel: 0 }
+      return { beatLevel: 0, isBeat: false, bassLevel: 0, midLevel: 0, trebleLevel: 0, overallLevel: 0 }
     }
     const audio = this.connectedElement || document.querySelector("audio")
     if (!audio || audio.paused) {
-      return { bassLevel: 0, midLevel: 0, trebleLevel: 0, overallLevel: 0 }
+      return { beatLevel: 0, isBeat: false, bassLevel: 0, midLevel: 0, trebleLevel: 0, overallLevel: 0 }
     }
 
     const t = audio.currentTime
@@ -239,14 +283,13 @@ class AudioDspEngine {
     const beatPhase = beatIndex % 1.0 // 0..1 phase within the beat
     const beatInBar = Math.floor(beatIndex) % 4 // 0: downbeat (one), 1: two, 2: three, 3: four
 
-    // 1. KICK & SUB-BASS (Downbeats & Grooves)
-    // Downbeat (beat 0) gets the highest punch; beat 2 gets secondary punch; 1 & 3 are backbeats
+    // 1. PURE BEAT DETECTION (Kicks & Downbeats — Zero vocal/treble pollution)
     const isDownbeat = beatInBar === 0
-    const downbeatMultiplier = isDownbeat ? 1.0 : beatInBar === 2 ? 0.78 : 0.48
-    // Snappy exponential punch (instant attack, clean musical decay)
-    const kickAttack = Math.exp(-beatPhase * 6.0)
-    const kick = kickAttack * downbeatMultiplier
-    const bassLevel = Math.min(1.0, 0.18 + kick * 0.82 * (0.6 + energy * 0.4))
+    const downbeatMultiplier = isDownbeat ? 1.0 : beatInBar === 2 ? 0.82 : 0.60
+    const kickAttack = Math.exp(-beatPhase * 6.5)
+    const beatLevel = Math.min(1.0, kickAttack * downbeatMultiplier)
+    const isBeat = beatPhase < 0.08
+    const bassLevel = Math.min(1.0, 0.18 + kickAttack * downbeatMultiplier * 0.82 * (0.6 + energy * 0.4))
 
     // 2. MIDS & VOCAL PRESENCE (Singing vs Snares)
     const isBackbeat = beatInBar === 1 || beatInBar === 3
@@ -254,27 +297,23 @@ class AudioDspEngine {
 
     let midLevel: number
     if (this.trackContext.isVocalsActive) {
-      // Singer is vocalizing: radiant bloom and expressive vocal amplitude
       const vocalWeight = this.trackContext.vocalWeight ?? 0.7
       const vocalPulse = 0.55 + vocalWeight * 0.40 + Math.abs(Math.sin(t * 3.14)) * 0.10
       midLevel = Math.min(1.0, vocalPulse + snare * 0.25)
     } else {
-      // Instrumental break: snare cadence and melodic harmonic swell
       const barProgress = (beatIndex / 4) % 1.0
       const harmonyFlow = Math.abs(Math.sin(barProgress * Math.PI * 2)) * 0.25
       midLevel = Math.min(1.0, 0.18 + snare * 0.65 + harmonyFlow)
     }
 
     // 3. TREBLE & AIR (Hi-hats, Acoustic Strings & Synths)
-    // 8th-note hi-hat pulse on the sub-beats
     const hatPhase = (beatIndex * 2) % 1.0
     const hat = Math.exp(-hatPhase * 5.8)
-    // 16th-note rhythmic micro-shimmer
     const shimmer = Math.exp(-((beatIndex * 4) % 1.0) * 7.0) * 0.35
     const trebleLevel = Math.min(1.0, 0.14 + (hat + shimmer) * 0.66 * (0.5 + energy * 0.5))
 
     const overallLevel = Math.min(1.0, bassLevel * 0.42 + midLevel * 0.38 + trebleLevel * 0.20)
-    return { bassLevel, midLevel, trebleLevel, overallLevel }
+    return { beatLevel, isBeat, bassLevel, midLevel, trebleLevel, overallLevel }
   }
 
   /**
