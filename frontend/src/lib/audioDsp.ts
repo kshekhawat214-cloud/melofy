@@ -64,17 +64,66 @@ class AudioDspEngine {
   }
 
   /**
-   * Initializes the DSP soundstage engine with the given HTML5 Audio element.
-   * Keeps the HTML5 Audio element connected natively to speakers to guarantee
-   * unmuted, zero-latency playback across all CDN redirects and cross-origin tracks.
+   * Initializes the Web Audio graph and attaches AnalyserNode to the HTML5 Audio element.
+   * Routes source -> analyser -> destination directly, guaranteeing live FFT analysis
+   * while ensuring clean, unmuted audio output to device speakers.
    */
   public init(audioEl: HTMLAudioElement): boolean {
-    if (typeof window === "undefined") return false
+    if (typeof window === "undefined" || !audioEl) return false
     this.connectedElement = audioEl
-    this.isInitialized = true
-    return true
-  }
 
+    if (this.isInitialized && this.sourceNode && this.analyser && this.audioCtx && this.audioCtx.state !== "closed") {
+      this.resume()
+      return true
+    }
+
+    try {
+      const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext
+      if (!AudioCtxClass) return false
+
+      if (!this.audioCtx || this.audioCtx.state === "closed") {
+        this.audioCtx = new AudioCtxClass()
+      }
+
+      // MediaElementAudioSourceNode can ONLY be created once per HTMLMediaElement instance.
+      // Cache on the DOM element to guarantee safety across re-renders.
+      let source = (audioEl as any).__melofyAudioSourceNode as MediaElementAudioSourceNode | undefined
+      if (!source) {
+        source = this.audioCtx.createMediaElementSource(audioEl)
+        ;(audioEl as any).__melofyAudioSourceNode = source
+      }
+      this.sourceNode = source
+
+      if (!this.analyser) {
+        this.analyser = this.audioCtx.createAnalyser()
+        // 512 fftSize provides 256 high-resolution frequency bins
+        this.analyser.fftSize = 512
+        this.analyser.smoothingTimeConstant = 0.52
+        this.analyser.minDecibels = -90
+        this.analyser.maxDecibels = -10
+        this.freqData = new Uint8Array(new ArrayBuffer(this.analyser.frequencyBinCount))
+      }
+
+      // Seamlessly route source through analyser directly to destination (speakers)
+      try {
+        source.disconnect()
+      } catch {}
+      try {
+        this.analyser.disconnect()
+      } catch {}
+
+      source.connect(this.analyser)
+      this.analyser.connect(this.audioCtx.destination)
+
+      this.resume()
+      this.isInitialized = true
+      return true
+    } catch (err) {
+      console.warn("Melofy AudioDspEngine initialization note:", err)
+      this.isInitialized = false
+      return false
+    }
+  }
 
   /**
    * Resumes AudioContext if suspended or interrupted by browser autoplay policies.
@@ -157,6 +206,9 @@ class AudioDspEngine {
   /**
    * Retrieves real-time audio metrics for dynamic visualizers and reactive ambient lighting.
    */
+  /**
+   * Retrieves real-time audio metrics for dynamic visualizers and reactive ambient lighting.
+   */
   public getReactivityData(): {
     bassLevel: number
     midLevel: number
@@ -164,67 +216,56 @@ class AudioDspEngine {
     overallLevel: number
   } {
     if (typeof window !== "undefined") {
-      if (!this.connectedElement || !this.isInitialized) {
-        const audio = document.querySelector("audio")
-        if (audio) {
-          this.init(audio)
+      const audio = this.connectedElement || document.querySelector("audio")
+      if (audio && (!this.connectedElement || !this.isInitialized || !this.analyser || !this.sourceNode)) {
+        this.init(audio)
+      }
+      if (this.audioCtx && (this.audioCtx.state === "suspended" || (this.audioCtx.state as any) === "interrupted")) {
+        this.resume()
+      }
+    }
+
+    const audioEl = this.connectedElement || (typeof document !== "undefined" ? document.querySelector("audio") : null)
+    if (!audioEl || audioEl.paused) {
+      return { bassLevel: 0, midLevel: 0, trebleLevel: 0, overallLevel: 0 }
+    }
+
+    if (this.analyser && this.freqData) {
+      try {
+        this.analyser.getByteFrequencyData(this.freqData as any)
+        const binCount = this.freqData.length
+        if (binCount > 0) {
+          // Sub-bass / Bass range: bins 1 to 14 (~80Hz - 240Hz)
+          let bassSum = 0
+          const bassEnd = Math.min(14, binCount)
+          for (let i = 1; i < bassEnd; i++) bassSum += this.freqData[i]
+          let bassLevel = bassSum / ((bassEnd - 1) * 255)
+          bassLevel = Math.min(1.0, Math.pow(bassLevel, 0.88) * 2.8)
+
+          // Mid / Vocal range: bins 14 to 65 (~240Hz - 2200Hz)
+          let midSum = 0
+          const midEnd = Math.min(65, binCount)
+          for (let i = bassEnd; i < midEnd; i++) midSum += this.freqData[i]
+          let midLevel = midSum / ((midEnd - bassEnd) * 255)
+          midLevel = Math.min(1.0, Math.pow(midLevel, 0.88) * 2.5)
+
+          // Treble range: bins 65 to 160 (~2200Hz - 8000Hz)
+          let trebleSum = 0
+          const trebleEnd = Math.min(160, binCount)
+          for (let i = midEnd; i < trebleEnd; i++) trebleSum += this.freqData[i]
+          let trebleLevel = trebleSum / ((trebleEnd - midEnd) * 255)
+          trebleLevel = Math.min(1.0, Math.pow(trebleLevel, 0.88) * 2.5)
+
+          const overallLevel = Math.min(1.0, bassLevel * 0.45 + midLevel * 0.35 + trebleLevel * 0.20)
+
+          if (overallLevel > 0.02 || bassSum > 5) {
+            return { bassLevel, midLevel, trebleLevel, overallLevel }
+          }
         }
-      }
-      if (this.audioCtx && this.audioCtx.state === "suspended") {
-        this.audioCtx.resume().catch(() => {})
-      }
+      } catch {}
     }
 
-    if (!this.analyser || !this.freqData) {
-      // Dynamic fallback based on audio element playback
-      return this.getSynthesizedReactivity()
-    }
-
-    try {
-      this.analyser.getByteFrequencyData(this.freqData as any)
-      const binCount = this.freqData.length
-      if (binCount === 0) return this.getSynthesizedReactivity()
-
-      // 1. Sub-bass / Bass range (bins 1 to 10: ~40Hz - 250Hz) - skip DC offset bin 0
-      let bassSum = 0
-      const bassBinsStart = 1
-      const bassBinsEnd = Math.min(10, binCount)
-      for (let i = bassBinsStart; i < bassBinsEnd; i++) {
-        bassSum += this.freqData[i]
-      }
-      let bassLevel = bassSum / ((bassBinsEnd - bassBinsStart) * 255)
-      // Gain boost for visible, punchy dynamics
-      bassLevel = Math.min(1.0, Math.pow(bassLevel, 0.95) * 2.8)
-
-      // 2. Mid / Vocal range (bins 10 to 45: ~250Hz - 2000Hz)
-      let midSum = 0
-      const midBinsEnd = Math.min(45, binCount)
-      for (let i = bassBinsEnd; i < midBinsEnd; i++) {
-        midSum += this.freqData[i]
-      }
-      let midLevel = midSum / ((midBinsEnd - bassBinsEnd) * 255)
-      midLevel = Math.min(1.0, Math.pow(midLevel, 0.95) * 2.5)
-
-      // 3. Treble range (bins 45 to 90: ~2000Hz - 8000Hz)
-      let trebleSum = 0
-      const trebleBinsEnd = Math.min(90, binCount)
-      for (let i = midBinsEnd; i < trebleBinsEnd; i++) {
-        trebleSum += this.freqData[i]
-      }
-      let trebleLevel = trebleSum / ((trebleBinsEnd - midBinsEnd) * 255)
-      trebleLevel = Math.min(1.0, Math.pow(trebleLevel, 0.95) * 2.6)
-
-      let overallLevel = Math.min(1.0, bassLevel * 0.45 + midLevel * 0.35 + trebleLevel * 0.20)
-
-      // If hardware returns all zeros (e.g. cross-origin restriction), seamlessly blend synthesized beat
-      if (overallLevel < 0.04) {
-        return this.getSynthesizedReactivity()
-      }
-
-      return { bassLevel, midLevel, trebleLevel, overallLevel }
-    } catch {
-      return this.getSynthesizedReactivity()
-    }
+    return this.getSynthesizedReactivity()
   }
 
   private getSynthesizedReactivity(): {
@@ -246,43 +287,33 @@ class AudioDspEngine {
     const tempo = rawTempo && rawTempo >= 50 && rawTempo <= 220 ? rawTempo : 120
     const energy = Math.max(0.2, Math.min(1.0, this.trackContext.energy ?? 0.75))
 
-    // True Musical Rhythm Calculation
     const beatPeriod = 60 / tempo
     const beatIndex = t / beatPeriod
-    const beatPhase = beatIndex % 1.0 // 0..1 phase within the beat
-    const beatInBar = Math.floor(beatIndex) % 4 // 0: downbeat (one), 1: two, 2: three, 3: four
+    const beatPhase = beatIndex % 1.0
+    const beatInBar = Math.floor(beatIndex) % 4
 
-    // 1. KICK & SUB-BASS (Downbeats & Grooves)
-    // Downbeat (beat 0) gets the highest punch; beat 2 gets secondary punch; 1 & 3 are backbeats
     const isDownbeat = beatInBar === 0
     const downbeatMultiplier = isDownbeat ? 1.0 : beatInBar === 2 ? 0.78 : 0.48
-    // Snappy exponential punch (instant attack, clean musical decay)
     const kickAttack = Math.exp(-beatPhase * 6.0)
     const kick = kickAttack * downbeatMultiplier
     const bassLevel = Math.min(1.0, 0.18 + kick * 0.82 * (0.6 + energy * 0.4))
 
-    // 2. MIDS & VOCAL PRESENCE (Singing vs Snares)
     const isBackbeat = beatInBar === 1 || beatInBar === 3
     const snare = isBackbeat ? Math.exp(-beatPhase * 4.8) : 0
 
     let midLevel: number
     if (this.trackContext.isVocalsActive) {
-      // Singer is vocalizing: radiant bloom and expressive vocal amplitude
       const vocalWeight = this.trackContext.vocalWeight ?? 0.7
       const vocalPulse = 0.55 + vocalWeight * 0.40 + Math.abs(Math.sin(t * 3.14)) * 0.10
       midLevel = Math.min(1.0, vocalPulse + snare * 0.25)
     } else {
-      // Instrumental break: snare cadence and melodic harmonic swell
       const barProgress = (beatIndex / 4) % 1.0
       const harmonyFlow = Math.abs(Math.sin(barProgress * Math.PI * 2)) * 0.25
       midLevel = Math.min(1.0, 0.18 + snare * 0.65 + harmonyFlow)
     }
 
-    // 3. TREBLE & AIR (Hi-hats, Acoustic Strings & Synths)
-    // 8th-note hi-hat pulse on the sub-beats
     const hatPhase = (beatIndex * 2) % 1.0
     const hat = Math.exp(-hatPhase * 5.8)
-    // 16th-note rhythmic micro-shimmer
     const shimmer = Math.exp(-((beatIndex * 4) % 1.0) * 7.0) * 0.35
     const trebleLevel = Math.min(1.0, 0.14 + (hat + shimmer) * 0.66 * (0.5 + energy * 0.5))
 
@@ -295,38 +326,57 @@ class AudioDspEngine {
    * Each value is 0..1 representing the amplitude at that frequency bin.
    */
   public getFullSpectrumData(): Float32Array {
+    const targetBins = 128
+    const result = new Float32Array(targetBins)
+
     if (typeof window !== "undefined") {
-      if (!this.connectedElement || !this.isInitialized) {
-        const audio = document.querySelector("audio")
-        if (audio) {
-          this.init(audio)
-        }
+      const audio = this.connectedElement || document.querySelector("audio")
+      if (audio && (!this.connectedElement || !this.isInitialized || !this.analyser || !this.sourceNode)) {
+        this.init(audio)
       }
-      if (this.audioCtx && this.audioCtx.state === "suspended") {
-        this.audioCtx.resume().catch(() => {})
+      if (this.audioCtx && (this.audioCtx.state === "suspended" || (this.audioCtx.state as any) === "interrupted")) {
+        this.resume()
       }
+    }
+
+    const audioEl = this.connectedElement || (typeof document !== "undefined" ? document.querySelector("audio") : null)
+    if (!audioEl || audioEl.paused) {
+      return result
     }
 
     if (this.analyser && this.freqData) {
       try {
         this.analyser.getByteFrequencyData(this.freqData as any)
+        const binCount = this.freqData.length
         let sum = 0
-        const result = new Float32Array(this.freqData.length)
-        for (let i = 0; i < this.freqData.length; i++) {
-          const raw = this.freqData[i] / 255
-          sum += raw
-          // Perceptual dynamic expansion: punchy bass and crystalline highs
-          result[i] = Math.min(1.0, Math.pow(raw, 0.82) * 1.55)
+        let maxVal = 0
+        for (let i = 0; i < binCount; i++) {
+          const v = this.freqData[i]
+          sum += v
+          if (v > maxVal) maxVal = v
         }
-        if (sum > 0.04) {
+
+        // Live FFT stream from audio
+        if (sum > 4 || maxVal > 8) {
+          for (let i = 0; i < targetBins; i++) {
+            const frac = i / (targetBins - 1)
+            // Logarithmic perceptual mapping
+            const logFrac = Math.pow(frac, 1.55)
+            const srcIdx = Math.min(binCount - 1, Math.max(1, Math.floor(logFrac * (binCount - 1))))
+            const rawVal = this.freqData[srcIdx] / 255.0
+            // Perceptual dynamic expansion for punchy transients and high fidelity
+            result[i] = Math.min(1.0, Math.pow(rawVal, 0.85) * 1.65)
+          }
           return result
         }
       } catch {}
     }
 
-    // High-resolution synthesized musical spectrum (128 dynamic bins for fluid circular waves)
-    const binCount = 128
-    const result = new Float32Array(binCount)
+    return this.getSynthesizedSpectrum(result)
+  }
+
+  private getSynthesizedSpectrum(result: Float32Array): Float32Array {
+    const binCount = result.length
     if (typeof window === "undefined") return result
     const audio = this.connectedElement || document.querySelector("audio")
     if (!audio || audio.paused) return result
@@ -342,7 +392,6 @@ class AudioDspEngine {
     const beatInBar = Math.floor(beatIndex) % 4
     const isDownbeat = beatInBar === 0
     const downbeatMult = isDownbeat ? 1.0 : beatInBar === 2 ? 0.82 : 0.52
-    // Explosive kick attack with snappy exponential decay
     const kick = Math.exp(-beatPhase * 6.5) * downbeatMult
     const isBackbeat = beatInBar === 1 || beatInBar === 3
     const snare = isBackbeat ? Math.exp(-beatPhase * 5.0) : 0
@@ -354,13 +403,10 @@ class AudioDspEngine {
 
     for (let i = 0; i < binCount; i++) {
       const frac = i / binCount
-
-      // 1. Sub-Bass & 808 Lobe Bins (0 - 28: Sub-bass 30Hz - 220Hz)
       const bassEnvelope = Math.max(0, 1 - frac * 3.0)
       const bassHarmonic = Math.abs(Math.sin(t * 6.28 + frac * 8.0)) * 0.15
       const bassCurve = bassEnvelope * (0.24 + kick * 0.88 * (0.6 + energy * 0.4) + bassHarmonic)
 
-      // 2. Mid & Vocal Formants (29 - 82: 250Hz - 3.8kHz)
       const midEnvelope = Math.exp(-Math.pow((frac - 0.42) * 3.8, 2))
       const vocalRipples = Math.abs(Math.sin(t * 12.0 + frac * 24.0)) * 0.18
       const midCurve = midEnvelope * (
@@ -369,7 +415,6 @@ class AudioDspEngine {
           : (0.16 + snare * 0.72 + Math.abs(Math.sin(t * 4.0 + frac * 16.0)) * 0.18)
       )
 
-      // 3. Treble & Air Shimmer (83 - 127: 4kHz - 18kHz)
       const trebleEnvelope = Math.exp(-Math.pow((frac - 0.78) * 3.9, 2))
       const trebleRipples = Math.abs(Math.cos(t * 16.0 + frac * 32.0)) * 0.22
       const trebleCurve = trebleEnvelope * (
@@ -384,3 +429,13 @@ class AudioDspEngine {
 
 // Global singleton instance
 export const audioDsp = new AudioDspEngine()
+
+if (typeof window !== "undefined") {
+  const unlockAudio = () => {
+    audioDsp.resume()
+  }
+  window.addEventListener("pointerdown", unlockAudio, { passive: true })
+  window.addEventListener("touchstart", unlockAudio, { passive: true })
+  window.addEventListener("keydown", unlockAudio, { passive: true })
+}
+

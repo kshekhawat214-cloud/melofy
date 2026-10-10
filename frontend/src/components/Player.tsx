@@ -177,8 +177,13 @@ export default function Player() {
 
   const getFullAudioUrl = useCallback((url?: string) => {
     if (!url) return ""
-    if (url.startsWith("http://") || url.startsWith("https://")) return url
     const base = (API_BASE || "https://melofy-ubj8.onrender.com").replace(/\/$/, "")
+    if (url.startsWith("http://") || url.startsWith("https://")) {
+      if (url.includes("melofy") || url.includes("localhost") || url.includes("127.0.0.1")) {
+        return url
+      }
+      return `${base}/api/proxy-audio?url=${encodeURIComponent(url)}`
+    }
     return `${base}${url.startsWith("/") ? "" : "/"}${url}`
   }, [])
 
@@ -221,17 +226,19 @@ export default function Player() {
       audioDsp.init(audioRef.current)
       audioDsp.applyMode(soundstageMode)
     }
-  }, [soundstageMode])
+  }, [soundstageMode, currentSong?.id])
 
   // Global user gesture unlocker for AudioContext
   useEffect(() => {
     const unlockAudio = () => {
       audioDsp.resume()
     }
-    window.addEventListener("pointerdown", unlockAudio, { once: true })
-    window.addEventListener("keydown", unlockAudio, { once: true })
+    window.addEventListener("pointerdown", unlockAudio, { passive: true })
+    window.addEventListener("touchstart", unlockAudio, { passive: true })
+    window.addEventListener("keydown", unlockAudio, { passive: true })
     return () => {
       window.removeEventListener("pointerdown", unlockAudio)
+      window.removeEventListener("touchstart", unlockAudio)
       window.removeEventListener("keydown", unlockAudio)
     }
   }, [])
@@ -243,6 +250,7 @@ export default function Player() {
 
     if (isPlaying) {
       applyCurrentVolume()
+      audioDsp.resume()
       const playPromise = audio.play()
       if (playPromise !== undefined) {
         playPromise.catch((err) => {
@@ -555,16 +563,24 @@ export default function Player() {
       {currentSong && (
         <audio
           ref={audioRef}
+          crossOrigin="anonymous"
           src={getFullAudioUrl(currentSong.streamUrl)}
           preload="auto"
           onPlay={() => {
             applyCurrentVolume()
+            if (audioRef.current) {
+              audioDsp.init(audioRef.current)
+              audioDsp.resume()
+            }
           }}
           onLoadStart={applyCurrentVolume}
           onLoadedData={applyCurrentVolume}
           onTimeUpdate={handleTimeUpdate}
           onLoadedMetadata={() => {
             applyCurrentVolume()
+            if (audioRef.current) {
+              audioDsp.init(audioRef.current)
+            }
             if (!restoredSeekAppliedRef.current) {
               restoredSeekAppliedRef.current = true
               const savedProgress = usePlayerStore.getState().progress
@@ -582,6 +598,10 @@ export default function Player() {
           onPlaying={() => {
             applyCurrentVolume()
             setIsBuffering(false)
+            if (audioRef.current) {
+              audioDsp.init(audioRef.current)
+              audioDsp.resume()
+            }
             if (currentSong) {
               audioRetryRef.current = { id: currentSong.id, count: 0 }
             }
@@ -589,6 +609,10 @@ export default function Player() {
           onCanPlay={() => {
             applyCurrentVolume()
             setIsBuffering(false)
+            if (audioRef.current) {
+              audioDsp.init(audioRef.current)
+              audioDsp.resume()
+            }
             if (currentSong) {
               audioRetryRef.current = { id: currentSong.id, count: 0 }
             }

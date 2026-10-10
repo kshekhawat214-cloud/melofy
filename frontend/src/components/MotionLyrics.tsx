@@ -246,9 +246,13 @@ export default function MotionLyrics() {
   // ─── 60 FPS Sub-millisecond Time & Audio Reactivity Loop ───────
   useEffect(() => {
     if (!isImmersiveVisualizerOpen) return
+    const audio = document.querySelector("audio")
+    if (audio) {
+      audioDsp.init(audio)
+      audioDsp.resume()
+    }
     let animId: number
     const tick = () => {
-      const audio = document.querySelector("audio")
       const audioTime = audio ? audio.currentTime : 0
       if (audio) {
         setCurrentTime(audioTime)
@@ -326,8 +330,8 @@ export default function MotionLyrics() {
           const smoothedSpec = smoothedSpectrumRef.current
           for (let i = 0; i < 128; i++) {
             const target = spectrum[i] || 0
-            // Instant snappy attack (0.62) to follow fast drum transients; smooth musical release (0.15)
-            const spd = target > smoothedSpec[i] ? 0.62 : 0.15
+            // Fast snappy attack (0.78) for instant drum transients & vocal inflections; smooth natural release (0.22)
+            const spd = target > smoothedSpec[i] ? 0.78 : 0.22
             smoothedSpec[i] += (target - smoothedSpec[i]) * spd
           }
 
@@ -345,32 +349,27 @@ export default function MotionLyrics() {
 
           // 2. Generate 128-Point Bilateral Specterr Frequency Wave Coordinates
           const N = 128
-          const maxWaveH = rInner * 0.68
+          const maxWaveH = rInner * 0.75
           const outerPoints: Array<{ x: number; y: number; angle: number; rOuter: number; amp: number }> = []
 
           for (let i = 0; i < N; i++) {
             // Start from 0 (3 o'clock, right horizontal equator) around full circle
             const angle = (i / N) * Math.PI * 2
 
-            // Normalized distance from the lateral equator:
-            // 0 at left & right lobes (equator, angles 0 & PI), 1 at top & bottom poles (angles PI/2 & 3*PI/2)
+            // Distance from lateral equator (0 at left & right lobes, 1 at top & bottom poles)
             const normDist = Math.abs(Math.sin(angle))
 
-            // Perceptual frequency mapping:
-            // Equators (left & right) get sub-bass and 808 kick thump (bins 1 - 14)
-            // Mid-regions get vocals, guitars, snares (bins 15 - 55)
-            // Poles (top & bottom) get high frequencies, air & shimmer (bins 56 - 105)
-            const curve = Math.pow(normDist, 1.35)
-            const exactIdx = 1 + curve * 92
-            const idxLow = Math.floor(exactIdx)
-            const idxHigh = Math.min(127, idxLow + 1)
-            const frac = exactIdx - idxLow
-            const amp = (smoothedSpec[idxLow] || 0) * (1 - frac) + (smoothedSpec[idxHigh] || 0) * frac
+            // Direct perceptual bilateral frequency mapping:
+            // Equators (left & right) get sub-bass and 808 kick thump (bins 1 - 12)
+            // Mid-regions get vocals, guitars, snares (bins 13 - 65)
+            // Poles (top & bottom) get high frequencies, air & shimmer (bins 66 - 120)
+            const binIdx = Math.min(127, Math.max(1, Math.round(Math.pow(normDist, 1.25) * 118)))
+            const amp = smoothedSpec[binIdx] || 0
 
-            // Dramatic lateral bass swell lobes (Specterr / Trap Nation signature shape)
-            const bassLobeFactor = Math.pow(1 - normDist, 2.2)
-            const dynamicWaveH = (amp * 0.88 + smoothBassRef.current * bassLobeFactor * 0.62) * maxWaveH
-            const baseWavePad = rInner * (0.025 + smoothBassRef.current * 0.015)
+            // Dynamic wave height: each peak is driven directly by that frequency's energy
+            const bassGain = 1.0 + Math.pow(1 - normDist, 1.8) * 0.35
+            const dynamicWaveH = amp * bassGain * maxWaveH
+            const baseWavePad = rInner * 0.02
             const totalH = baseWavePad + dynamicWaveH
             const rOuter = rInner + totalH
 
@@ -432,19 +431,21 @@ export default function MotionLyrics() {
           }
 
           // 5. Fine Radial Spectrum Frequency Pins (High-Density Audiophile Detail)
-          for (let i = 0; i < N; i += 2) {
+          for (let i = 0; i < N; i++) {
             const pt = outerPoints[i]
-            const x1 = cx + Math.cos(pt.angle) * rInner
-            const y1 = cy + Math.sin(pt.angle) * rInner
-            const x2 = cx + Math.cos(pt.angle) * pt.rOuter
-            const y2 = cy + Math.sin(pt.angle) * pt.rOuter
+            if (pt.amp > 0.03) {
+              const x1 = cx + Math.cos(pt.angle) * rInner
+              const y1 = cy + Math.sin(pt.angle) * rInner
+              const x2 = cx + Math.cos(pt.angle) * pt.rOuter
+              const y2 = cy + Math.sin(pt.angle) * pt.rOuter
 
-            ctx.beginPath()
-            ctx.moveTo(x1, y1)
-            ctx.lineTo(x2, y2)
-            ctx.strokeStyle = hexToRgba(vibe.primary, 0.25 + pt.amp * 0.40)
-            ctx.lineWidth = 1.3 * dpr
-            ctx.stroke()
+              ctx.beginPath()
+              ctx.moveTo(x1, y1)
+              ctx.lineTo(x2, y2)
+              ctx.strokeStyle = hexToRgba(vibe.neonHighlight, 0.25 + pt.amp * 0.60)
+              ctx.lineWidth = (i % 2 === 0 ? 1.6 : 1.1) * dpr
+              ctx.stroke()
+            }
           }
 
           // 6. Glowing Neon Outer Crest Stroke (Crisp Perimeter Edge)

@@ -93,7 +93,7 @@ def get_audio_mime_type(file_path: Path) -> str:
 
 def proxy_remote_audio_stream(remote_url: str, request_range: str = None):
     """Proxies remote CDN audio stream chunk-by-chunk with full CORS and HTTP 206 Range headers."""
-    import urllib.request
+    import requests
 
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -102,9 +102,8 @@ def proxy_remote_audio_stream(remote_url: str, request_range: str = None):
         headers["Range"] = request_range
 
     try:
-        req = urllib.request.Request(remote_url, headers=headers)
-        upstream = urllib.request.urlopen(req, timeout=12.0)
-        status_code = getattr(upstream, "status", 200)
+        upstream = requests.get(remote_url, headers=headers, stream=True, timeout=15.0)
+        status_code = upstream.status_code if upstream.status_code in [200, 206] else 200
 
         response_headers = {
             "Accept-Ranges": "bytes",
@@ -122,11 +121,9 @@ def proxy_remote_audio_stream(remote_url: str, request_range: str = None):
 
         def iterfile():
             try:
-                while True:
-                    chunk = upstream.read(64 * 1024)
-                    if not chunk:
-                        break
-                    yield chunk
+                for chunk in upstream.iter_content(chunk_size=64 * 1024):
+                    if chunk:
+                        yield chunk
             except Exception as stream_err:
                 logger.debug(f"Streaming chunk note: {stream_err}")
             finally:
@@ -140,6 +137,24 @@ def proxy_remote_audio_stream(remote_url: str, request_range: str = None):
     except Exception as proxy_err:
         logger.warning(f"Audio stream proxy fallback to redirect: {proxy_err}")
         return RedirectResponse(url=remote_url, status_code=307, headers=STREAM_HEADERS)
+
+
+@router.options("/proxy-audio")
+def options_proxy_audio():
+    from fastapi import Response
+    return Response(status_code=204, headers=STREAM_HEADERS)
+
+
+@router.api_route("/proxy-audio", methods=["GET", "HEAD"])
+async def proxy_external_audio(url: str, request: Request):
+    """
+    Proxies any external audio URL with guaranteed CORS and Byte-Range support
+    so that Web Audio API AnalyserNode can extract 60 FPS real-time FFT frequency data.
+    """
+    if not url:
+        raise HTTPException(status_code=400, detail="Missing audio URL parameter")
+    request_range = request.headers.get("range")
+    return proxy_remote_audio_stream(url, request_range)
 
 
 @router.options("/songs/{song_id}/stream")
@@ -194,9 +209,9 @@ async def stream_audio(song_id: str, request: Request, background_tasks: Backgro
         request_range = request.headers.get("range")
         is_retry = bool(request.query_params.get("_retry"))
 
-        # 1. If audio is an external direct CDN URL (and not a retry after playback error), redirect directly
+        # 1. If audio is an external direct CDN URL (and not a retry after playback error), stream with guaranteed CORS
         if not is_retry and song.audio_path and (song.audio_path.startswith("http://") or song.audio_path.startswith("https://")):
-            return RedirectResponse(url=song.audio_path, status_code=307, headers=STREAM_HEADERS)
+            return proxy_remote_audio_stream(song.audio_path, request_range)
 
         path = None
         if song.audio_path:
@@ -304,7 +319,7 @@ async def stream_audio(song_id: str, request: Request, background_tasks: Backgro
                         logger.warning(f"Background stream cache failed: {bg_err}")
 
                 background_tasks.add_task(_bg_download, track_meta, song.source_url or "")
-                return RedirectResponse(url=direct_url, status_code=307, headers=STREAM_HEADERS)
+                return proxy_remote_audio_stream(direct_url, request_range)
         except Exception as resolve_err:
             logger.warning(f"Direct stream resolver passed to full download: {resolve_err}")
 
@@ -349,7 +364,7 @@ async def stream_audio(song_id: str, request: Request, background_tasks: Backgro
                         em_entries = em_data.get("entries", []) if em_data else []
                         if em_entries and em_entries[0].get("url"):
                             logger.info(f"Emergency Tier 4 succeeded for '{song.title}' -> streaming immediately!")
-                            return RedirectResponse(url=em_entries[0]["url"], status_code=307, headers=STREAM_HEADERS)
+                            return proxy_remote_audio_stream(em_entries[0]["url"], request_range)
                 except Exception as em_err:
                     logger.warning(f"Emergency Tier 4 stream fallback note: {em_err}")
 
