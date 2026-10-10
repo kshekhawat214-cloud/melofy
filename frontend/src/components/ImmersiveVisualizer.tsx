@@ -72,95 +72,96 @@ export default function ImmersiveVisualizer() {
     // Lock visualizer evolution clock directly to real-time audio playback
     const t = isAudioActive ? audioTime : timeRef.current
 
-    // ─── 1. ASUS Aura Sync Soft Dynamics Follower ───────────────────
+    // ─── 1. Asymmetrical Audio Dynamics ──────────────────────────────
     const raw = audioDsp.getReactivityData()
     const a = audioRef.current
 
-    // ASUS Aura Sync Soft Low-Pass Filtering (silky liquid transitions, zero harsh flashing)
-    const attack = 0.10
-    const decay = 0.05
+    // Snappy attack on kicks/vocals, luxurious velvet decay
+    const attack = 0.32
+    const decay = 0.12
     a.bass += (raw.bassLevel - a.bass) * (raw.bassLevel > a.bass ? attack : decay)
     a.mid += (raw.midLevel - a.mid) * (raw.midLevel > a.mid ? attack : decay)
     a.treble += (raw.trebleLevel - a.treble) * (raw.trebleLevel > a.treble ? attack : decay)
     a.overall += (raw.overallLevel - a.overall) * (raw.overallLevel > a.overall ? attack : decay)
 
-    const curBass = isPlaying ? a.bass : 0.04
-    const curMid = isPlaying ? a.mid : 0.04
-    const curTreble = isPlaying ? a.treble : 0.03
-    const curOverall = isPlaying ? a.overall : 0.04
+    const curBass = isPlaying ? Math.max(a.bass, 0.14) : 0.10
+    const curMid = isPlaying ? Math.max(a.mid, 0.12) : 0.08
+    const curTreble = isPlaying ? Math.max(a.treble, 0.10) : 0.06
+    const curOverall = isPlaying ? Math.max(a.overall, 0.14) : 0.08
 
     // ─── 2. Deep Velvet Foundation (Zero Dark Void) ───────────────────
     ctx.globalCompositeOperation = "source-over"
     
     // Rich midnight indigo/violet base (dark, velvety, and restful on the eyes)
     const baseGrad = ctx.createLinearGradient(0, 0, 0, H)
-    baseGrad.addColorStop(0, "#05040b")
-    baseGrad.addColorStop(0.35, "#080614")
-    baseGrad.addColorStop(0.7, "#0c081e")
-    baseGrad.addColorStop(1, "#05040b")
+    baseGrad.addColorStop(0, "#06050e")
+    baseGrad.addColorStop(0.35, "#0a071a")
+    baseGrad.addColorStop(0.7, "#0f0924")
+    baseGrad.addColorStop(1, "#06050e")
     ctx.fillStyle = baseGrad
     ctx.fillRect(0, 0, W, H)
 
     // Soft atmospheric room wash (restrained, gentle velvety tones, zero glare)
     const roomWash = ctx.createRadialGradient(W * 0.5, H * 0.45, 0, W * 0.5, H * 0.5, Math.max(W, H) * 0.8)
-    roomWash.addColorStop(0, hexToRgba(vibe.primary, 0.08 + curOverall * 0.06))
-    roomWash.addColorStop(0.5, hexToRgba(vibe.secondary, 0.05 + curMid * 0.05))
-    roomWash.addColorStop(0.85, hexToRgba(vibe.accent, 0.02 + curBass * 0.03))
+    roomWash.addColorStop(0, hexToRgba(vibe.primary, 0.12 + curOverall * 0.10))
+    roomWash.addColorStop(0.5, hexToRgba(vibe.secondary, 0.08 + curMid * 0.08))
+    roomWash.addColorStop(0.85, hexToRgba(vibe.accent, 0.04 + curBass * 0.05))
     roomWash.addColorStop(1, "transparent")
     ctx.fillStyle = roomWash
     ctx.fillRect(0, 0, W, H)
 
-    // ─── 3. Soft Liquid Aurora Ambient Nodes (ASUS Aura Sync Flow) ────
+    // ─── 3. Soft Liquid Aurora Ambient Nodes (Zero Screen Bleach) ─────
+    // Keep source-over composite operation to prevent additive white flashes!
     ctx.globalCompositeOperation = "source-over"
 
-    // NODE 1: Sub-Bass & Harmonic Core (Lower-Left to Center Soft Swell)
-    const n1X = W * (0.34 + Math.sin(t * 0.28) * 0.14)
-    const n1Y = H * (0.64 + Math.cos(t * 0.24) * 0.12)
-    const n1R = minDim * (0.44 + curBass * 0.25)
-    const n1Alpha = 0.08 + curBass * 0.08
+    // NODE 1: Sub-Bass & Kick Core (Lower-Left to Center Soft Swell)
+    const n1X = W * (0.34 + Math.sin(t * 0.38) * 0.15)
+    const n1Y = H * (0.64 + Math.cos(t * 0.32) * 0.13)
+    const n1R = minDim * (0.50 + curBass * 0.45)
+    const n1Alpha = 0.15 + curBass * 0.12
     const grad1 = ctx.createRadialGradient(n1X, n1Y, 0, n1X, n1Y, n1R)
     grad1.addColorStop(0, hexToRgba(vibe.primary, n1Alpha))
-    grad1.addColorStop(0.40, hexToRgba(vibe.primary, n1Alpha * 0.50))
-    grad1.addColorStop(0.75, hexToRgba(vibe.primary, n1Alpha * 0.10))
+    grad1.addColorStop(0.40, hexToRgba(vibe.primary, n1Alpha * 0.55))
+    grad1.addColorStop(0.75, hexToRgba(vibe.primary, n1Alpha * 0.12))
     grad1.addColorStop(1, "transparent")
     ctx.fillStyle = grad1
     ctx.fillRect(0, 0, W, H)
 
     // NODE 2: Vocal Presence & Melodic Energy (Upper-Right to Center)
-    const n2X = W * (0.66 + Math.cos(t * 0.32) * 0.14)
-    const n2Y = H * (0.36 + Math.sin(t * 0.26) * 0.12)
-    const n2R = minDim * (0.42 + curMid * 0.22)
-    const n2Alpha = 0.07 + curMid * 0.07
+    const n2X = W * (0.66 + Math.cos(t * 0.44) * 0.15)
+    const n2Y = H * (0.36 + Math.sin(t * 0.36) * 0.13)
+    const n2R = minDim * (0.46 + curMid * 0.42)
+    const n2Alpha = 0.13 + curMid * 0.11
     const grad2 = ctx.createRadialGradient(n2X, n2Y, 0, n2X, n2Y, n2R)
     grad2.addColorStop(0, hexToRgba(vibe.secondary, n2Alpha))
-    grad2.addColorStop(0.45, hexToRgba(vibe.secondary, n2Alpha * 0.45))
-    grad2.addColorStop(0.80, hexToRgba(vibe.secondary, n2Alpha * 0.08))
+    grad2.addColorStop(0.45, hexToRgba(vibe.secondary, n2Alpha * 0.50))
+    grad2.addColorStop(0.80, hexToRgba(vibe.secondary, n2Alpha * 0.10))
     grad2.addColorStop(1, "transparent")
     ctx.fillStyle = grad2
     ctx.fillRect(0, 0, W, H)
 
     // NODE 3: Harmonic Drift & Ambient Horizon (Top-Left / Center Drift)
-    const n3X = W * (0.44 + Math.sin(t * 0.22 + 1.8) * 0.14)
-    const n3Y = H * (0.28 + Math.cos(t * 0.20 + 1.2) * 0.12)
-    const n3R = minDim * (0.44 + curOverall * 0.20)
-    const n3Alpha = 0.06 + curOverall * 0.05
+    const n3X = W * (0.44 + Math.sin(t * 0.30 + 1.8) * 0.16)
+    const n3Y = H * (0.28 + Math.cos(t * 0.26 + 1.2) * 0.14)
+    const n3R = minDim * (0.48 + curOverall * 0.36)
+    const n3Alpha = 0.10 + curOverall * 0.08
     const grad3 = ctx.createRadialGradient(n3X, n3Y, 0, n3X, n3Y, n3R)
     grad3.addColorStop(0, hexToRgba(vibe.accent, n3Alpha))
-    grad3.addColorStop(0.50, hexToRgba(vibe.accent, n3Alpha * 0.40))
-    grad3.addColorStop(0.85, hexToRgba(vibe.accent, n3Alpha * 0.06))
+    grad3.addColorStop(0.50, hexToRgba(vibe.accent, n3Alpha * 0.45))
+    grad3.addColorStop(0.85, hexToRgba(vibe.accent, n3Alpha * 0.08))
     grad3.addColorStop(1, "transparent")
     ctx.fillStyle = grad3
     ctx.fillRect(0, 0, W, H)
 
-    // NODE 4: High Frequencies & Sparkling Atmosphere (Bottom-Right)
-    const n4X = W * (0.74 + Math.sin(t * 0.36 + 3.1) * 0.12)
-    const n4Y = H * (0.76 + Math.cos(t * 0.28 + 2.5) * 0.10)
-    const n4R = minDim * (0.38 + curTreble * 0.20)
-    const n4Alpha = 0.05 + curTreble * 0.04
+    // NODE 4: High Frequencies & Sparkling Instrument Atmosphere (Bottom-Right)
+    const n4X = W * (0.74 + Math.sin(t * 0.50 + 3.1) * 0.14)
+    const n4Y = H * (0.76 + Math.cos(t * 0.40 + 2.5) * 0.12)
+    const n4R = minDim * (0.42 + curTreble * 0.38)
+    const n4Alpha = 0.08 + curTreble * 0.07
     const grad4 = ctx.createRadialGradient(n4X, n4Y, 0, n4X, n4Y, n4R)
     grad4.addColorStop(0, hexToRgba(vibe.secondary, n4Alpha))
-    grad4.addColorStop(0.45, hexToRgba(vibe.secondary, n4Alpha * 0.35))
-    grad4.addColorStop(0.80, hexToRgba(vibe.secondary, n4Alpha * 0.06))
+    grad4.addColorStop(0.45, hexToRgba(vibe.secondary, n4Alpha * 0.40))
+    grad4.addColorStop(0.80, hexToRgba(vibe.secondary, n4Alpha * 0.08))
     grad4.addColorStop(1, "transparent")
     ctx.fillStyle = grad4
     ctx.fillRect(0, 0, W, H)

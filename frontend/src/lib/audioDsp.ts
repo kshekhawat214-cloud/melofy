@@ -52,14 +52,124 @@ class AudioDspEngine {
   }
 
   /**
+   * Sets the master volume on the Web Audio gain node.
+   */
+  public setVolume(volume: number): void {
+    if (this.inputGain && this.audioCtx) {
+      try {
+        const v = Math.max(0, Math.min(1, volume))
+        this.inputGain.gain.setValueAtTime(v, this.audioCtx.currentTime)
+      } catch {}
+    }
+  }
+
+  /**
    * Initializes the Web Audio graph and attaches it to the given HTML5 Audio element.
    * Safe to call multiple times with the same element.
    */
   public init(audioEl: HTMLAudioElement): boolean {
     if (typeof window === "undefined") return false
     this.connectedElement = audioEl
-    this.isInitialized = true
-    return true
+
+    try {
+      const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext
+      if (!AudioCtxClass) return false
+
+      if (!this.audioCtx || this.audioCtx.state === "closed") {
+        this.audioCtx = new AudioCtxClass()
+      }
+
+      // MediaElementAudioSourceNode can ONLY be created once per HTMLMediaElement instance.
+      // Cache on the DOM element to guarantee safety across re-renders.
+      let source = (audioEl as any).__melofyAudioSourceNode as MediaElementAudioSourceNode | undefined
+      if (!source) {
+        source = this.audioCtx.createMediaElementSource(audioEl)
+        ;(audioEl as any).__melofyAudioSourceNode = source
+      }
+      this.sourceNode = source
+
+      if (!this.inputGain) {
+        // Master Input Gain
+        this.inputGain = this.audioCtx.createGain()
+        this.inputGain.gain.value = 1.0
+
+        // Sub-Bass Shelf (low frequencies 40Hz - 100Hz)
+        this.subBassFilter = this.audioCtx.createBiquadFilter()
+        this.subBassFilter.type = "lowshelf"
+        this.subBassFilter.frequency.value = 85
+        this.subBassFilter.gain.value = 0
+
+        // Low-Mid Punch Filter (180Hz - 320Hz)
+        this.midPunchFilter = this.audioCtx.createBiquadFilter()
+        this.midPunchFilter.type = "peaking"
+        this.midPunchFilter.frequency.value = 240
+        this.midPunchFilter.Q.value = 1.1
+        this.midPunchFilter.gain.value = 0
+
+        // Vocal Presence Filter (2.4kHz - 3.4kHz)
+        this.vocalPresenceFilter = this.audioCtx.createBiquadFilter()
+        this.vocalPresenceFilter.type = "peaking"
+        this.vocalPresenceFilter.frequency.value = 2800
+        this.vocalPresenceFilter.Q.value = 1.2
+        this.vocalPresenceFilter.gain.value = 0
+
+        // Vocal Air High-Shelf Filter (9kHz - 14kHz)
+        this.vocalAirFilter = this.audioCtx.createBiquadFilter()
+        this.vocalAirFilter.type = "highshelf"
+        this.vocalAirFilter.frequency.value = 11000
+        this.vocalAirFilter.gain.value = 0
+
+        // Real-time Audio Analyser (256 fftSize gives 128 frequency bins)
+        this.analyser = this.audioCtx.createAnalyser()
+        this.analyser.fftSize = 256
+        this.analyser.smoothingTimeConstant = 0.65
+        this.freqData = new Uint8Array(new ArrayBuffer(this.analyser.frequencyBinCount))
+
+        // Spatial Concert Nodes
+        this.spatialDryGain = this.audioCtx.createGain()
+        this.spatialDryGain.gain.value = 1.0
+
+        this.spatialWetGain = this.audioCtx.createGain()
+        this.spatialWetGain.gain.value = 0.0
+
+        this.splitter = this.audioCtx.createChannelSplitter(2)
+        this.merger = this.audioCtx.createChannelMerger(2)
+        this.delayLeft = this.audioCtx.createDelay()
+        this.delayLeft.delayTime.value = 0.007
+        this.delayRight = this.audioCtx.createDelay()
+        this.delayRight.delayTime.value = 0.016
+
+        // Connect Equalizer & Analyser Graph:
+        // Source -> InputGain -> SubBass -> MidPunch -> VocalPresence -> VocalAir -> Analyser
+        this.sourceNode.connect(this.inputGain)
+        this.inputGain.connect(this.subBassFilter)
+        this.subBassFilter.connect(this.midPunchFilter)
+        this.midPunchFilter.connect(this.vocalPresenceFilter)
+        this.vocalPresenceFilter.connect(this.vocalAirFilter)
+        this.vocalAirFilter.connect(this.analyser)
+
+        // Dry Path: Analyser -> SpatialDryGain -> Destination
+        this.analyser.connect(this.spatialDryGain)
+        this.spatialDryGain.connect(this.audioCtx.destination)
+
+        // Wet Spatial Path: Analyser -> Splitter -> Delays -> Merger -> SpatialWetGain -> Destination
+        this.analyser.connect(this.splitter)
+        this.splitter.connect(this.delayLeft, 0)
+        this.splitter.connect(this.delayRight, 1)
+        this.delayLeft.connect(this.merger, 0, 0)
+        this.delayRight.connect(this.merger, 0, 1)
+        this.merger.connect(this.spatialWetGain)
+        this.spatialWetGain.connect(this.audioCtx.destination)
+      }
+
+      this.isInitialized = true
+      this.applyMode(this.currentMode)
+      return true
+    } catch (err) {
+      console.warn("Melofy AudioDspEngine initialization note:", err)
+      this.isInitialized = true
+      return false
+    }
   }
 
 
@@ -300,11 +410,12 @@ class AudioDspEngine {
         let sum = 0
         const result = new Float32Array(this.freqData.length)
         for (let i = 0; i < this.freqData.length; i++) {
-          const val = this.freqData[i] / 255
-          result[i] = val
-          sum += val
+          const raw = this.freqData[i] / 255
+          sum += raw
+          // Perceptual dynamic expansion: punchy bass and crystalline highs
+          result[i] = Math.min(1.0, Math.pow(raw, 0.82) * 1.55)
         }
-        if (sum > 0.4) {
+        if (sum > 0.04) {
           return result
         }
       } catch {}
@@ -342,30 +453,27 @@ class AudioDspEngine {
       const frac = i / binCount
 
       // 1. Sub-Bass & 808 Lobe Bins (0 - 28: Sub-bass 30Hz - 220Hz)
-      const bassEnvelope = Math.max(0, 1 - frac * 3.2)
-      const bassHarmonic = Math.abs(Math.sin(t * 6.28 + frac * 16.0)) * 0.18
+      const bassEnvelope = Math.max(0, 1 - frac * 3.0)
+      const bassHarmonic = Math.abs(Math.sin(t * 6.28 + frac * 8.0)) * 0.15
       const bassCurve = bassEnvelope * (0.24 + kick * 0.88 * (0.6 + energy * 0.4) + bassHarmonic)
 
       // 2. Mid & Vocal Formants (29 - 82: 250Hz - 3.8kHz)
       const midEnvelope = Math.exp(-Math.pow((frac - 0.42) * 3.8, 2))
-      const vocalRipples = Math.abs(Math.sin(t * 14.0 + i * 0.42)) * 0.22
+      const vocalRipples = Math.abs(Math.sin(t * 12.0 + frac * 24.0)) * 0.18
       const midCurve = midEnvelope * (
         isVocals
           ? (0.42 + vocalWeight * 0.48 + vocalRipples)
-          : (0.16 + snare * 0.72 + Math.abs(Math.sin(t * 4.0 + i * 0.25)) * 0.22)
+          : (0.16 + snare * 0.72 + Math.abs(Math.sin(t * 4.0 + frac * 16.0)) * 0.18)
       )
 
       // 3. Treble & Air Shimmer (83 - 127: 4kHz - 18kHz)
       const trebleEnvelope = Math.exp(-Math.pow((frac - 0.78) * 3.9, 2))
-      const trebleRipples = Math.abs(Math.cos(t * 18.0 + i * 0.5)) * 0.28
+      const trebleRipples = Math.abs(Math.cos(t * 16.0 + frac * 32.0)) * 0.22
       const trebleCurve = trebleEnvelope * (
         0.12 + hat * 0.65 * (0.5 + energy * 0.5) + trebleRipples
       )
 
-      // Fine micro-harmonic frequency peaks across the spectrum
-      const microPeak = (Math.sin(i * 1.57 + t * 8.0) > 0.6 ? 0.08 : 0.0) * energy
-
-      result[i] = Math.min(1.0, bassCurve + midCurve + trebleCurve + microPeak)
+      result[i] = Math.min(1.0, bassCurve + midCurve + trebleCurve)
     }
     return result
   }

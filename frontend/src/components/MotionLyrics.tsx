@@ -326,7 +326,8 @@ export default function MotionLyrics() {
           const smoothedSpec = smoothedSpectrumRef.current
           for (let i = 0; i < 128; i++) {
             const target = spectrum[i] || 0
-            const spd = target > smoothedSpec[i] ? 0.48 : 0.14
+            // Instant snappy attack (0.62) to follow fast drum transients; smooth musical release (0.15)
+            const spd = target > smoothedSpec[i] ? 0.62 : 0.15
             smoothedSpec[i] += (target - smoothedSpec[i]) * spd
           }
 
@@ -344,22 +345,32 @@ export default function MotionLyrics() {
 
           // 2. Generate 128-Point Bilateral Specterr Frequency Wave Coordinates
           const N = 128
-          const maxWaveH = rInner * 0.58
-          const baseWavePad = rInner * 0.035
+          const maxWaveH = rInner * 0.68
           const outerPoints: Array<{ x: number; y: number; angle: number; rOuter: number; amp: number }> = []
 
           for (let i = 0; i < N; i++) {
-            const angle = (i / N) * Math.PI * 2 - Math.PI / 2
+            // Start from 0 (3 o'clock, right horizontal equator) around full circle
+            const angle = (i / N) * Math.PI * 2
 
-            // Bilateral symmetry (left and right channels mirror for balanced Trap Nation signature look)
-            const half = N / 2 // 64
-            const specIdx = i < half
-              ? Math.floor((i / (half - 1)) * 127)
-              : Math.floor(((N - 1 - i) / (half - 1)) * 127)
-            const amp = smoothedSpec[specIdx] || 0
+            // Normalized distance from the lateral equator:
+            // 0 at left & right lobes (equator, angles 0 & PI), 1 at top & bottom poles (angles PI/2 & 3*PI/2)
+            const normDist = Math.abs(Math.sin(angle))
 
-            // Powerful dynamic response: kick & 808 bursts create massive swell lobes, mids create rapid fluid ripples
-            const dynamicWaveH = (amp * 0.82 + smoothBassRef.current * 0.22) * maxWaveH
+            // Perceptual frequency mapping:
+            // Equators (left & right) get sub-bass and 808 kick thump (bins 1 - 14)
+            // Mid-regions get vocals, guitars, snares (bins 15 - 55)
+            // Poles (top & bottom) get high frequencies, air & shimmer (bins 56 - 105)
+            const curve = Math.pow(normDist, 1.35)
+            const exactIdx = 1 + curve * 92
+            const idxLow = Math.floor(exactIdx)
+            const idxHigh = Math.min(127, idxLow + 1)
+            const frac = exactIdx - idxLow
+            const amp = (smoothedSpec[idxLow] || 0) * (1 - frac) + (smoothedSpec[idxHigh] || 0) * frac
+
+            // Dramatic lateral bass swell lobes (Specterr / Trap Nation signature shape)
+            const bassLobeFactor = Math.pow(1 - normDist, 2.2)
+            const dynamicWaveH = (amp * 0.88 + smoothBassRef.current * bassLobeFactor * 0.62) * maxWaveH
+            const baseWavePad = rInner * (0.025 + smoothBassRef.current * 0.015)
             const totalH = baseWavePad + dynamicWaveH
             const rOuter = rInner + totalH
 
@@ -371,7 +382,7 @@ export default function MotionLyrics() {
           // 3. Secondary Ghost Echo Wave (Atmospheric 3D Depth Contour)
           if (outerPoints.length > 2) {
             ctx.beginPath()
-            const echoOffset = (5 + smoothBassRef.current * 6) * dpr
+            const echoOffset = (6 + smoothBassRef.current * 8) * dpr
             const p0x = outerPoints[0].x + Math.cos(outerPoints[0].angle) * echoOffset
             const p0y = outerPoints[0].y + Math.sin(outerPoints[0].angle) * echoOffset
             const pLastX = outerPoints[N - 1].x + Math.cos(outerPoints[N - 1].angle) * echoOffset
@@ -387,7 +398,7 @@ export default function MotionLyrics() {
               ctx.quadraticCurveTo(p1x, p1y, (p1x + p2x) / 2, (p1y + p2y) / 2)
             }
             ctx.closePath()
-            ctx.strokeStyle = hexToRgba(vibe.primary, 0.22 + smoothBassRef.current * 0.14)
+            ctx.strokeStyle = hexToRgba(vibe.primary, 0.25 + smoothBassRef.current * 0.18)
             ctx.lineWidth = 1.8 * dpr
             ctx.stroke()
           }
@@ -406,16 +417,16 @@ export default function MotionLyrics() {
               const midY = (outerPoints[i].y + next.y) / 2
               ctx.quadraticCurveTo(outerPoints[i].x, outerPoints[i].y, midX, midY)
             }
-            // Trace counter-clockwise along the inner circular disc edge to create the filled donut wave
-            ctx.arc(cx, cy, rInner * 0.99, -Math.PI / 2, Math.PI * 1.5, true)
+            // Trace counter-clockwise along the inner circular disc edge to create the filled continuous donut wave
+            ctx.arc(cx, cy, rInner * 0.99, 0, Math.PI * 2, true)
             ctx.closePath()
 
             // Radiant neon gradient fill from inner disc to outer wave peaks
             const fillGrad = ctx.createRadialGradient(cx, cy, rInner, cx, cy, rInner + maxWaveH)
-            fillGrad.addColorStop(0, hexToRgba(vibe.primary, 0.78 + smoothBassRef.current * 0.18))
-            fillGrad.addColorStop(0.50, hexToRgba(vibe.secondary, 0.65 + smoothMidRef.current * 0.15))
-            fillGrad.addColorStop(0.88, hexToRgba(vibe.neonHighlight, 0.82))
-            fillGrad.addColorStop(1.0, hexToRgba(vibe.neonHighlight, 0.92))
+            fillGrad.addColorStop(0, hexToRgba(vibe.primary, 0.85 + smoothBassRef.current * 0.15))
+            fillGrad.addColorStop(0.50, hexToRgba(vibe.secondary, 0.75 + smoothMidRef.current * 0.15))
+            fillGrad.addColorStop(0.85, hexToRgba(vibe.neonHighlight, 0.90))
+            fillGrad.addColorStop(1.0, hexToRgba(vibe.neonHighlight, 1.0))
             ctx.fillStyle = fillGrad
             ctx.fill()
           }
@@ -431,7 +442,7 @@ export default function MotionLyrics() {
             ctx.beginPath()
             ctx.moveTo(x1, y1)
             ctx.lineTo(x2, y2)
-            ctx.strokeStyle = hexToRgba(vibe.primary, 0.28 + pt.amp * 0.35)
+            ctx.strokeStyle = hexToRgba(vibe.primary, 0.25 + pt.amp * 0.40)
             ctx.lineWidth = 1.3 * dpr
             ctx.stroke()
           }
@@ -452,10 +463,10 @@ export default function MotionLyrics() {
             }
             ctx.closePath()
 
-            ctx.strokeStyle = hexToRgba(vibe.neonHighlight, 0.95)
-            ctx.lineWidth = 2.4 * dpr
-            ctx.shadowColor = vibe.secondary
-            ctx.shadowBlur = 10 * dpr
+            ctx.strokeStyle = hexToRgba(vibe.neonHighlight, 0.98)
+            ctx.lineWidth = 2.6 * dpr
+            ctx.shadowColor = vibe.neonHighlight
+            ctx.shadowBlur = 12 * dpr
             ctx.stroke()
             ctx.shadowBlur = 0
           }
@@ -463,10 +474,10 @@ export default function MotionLyrics() {
           // 7. Inner Disc Rim Border (Clean Circular Disc Anchor)
           ctx.beginPath()
           ctx.arc(cx, cy, rInner, 0, Math.PI * 2)
-          ctx.strokeStyle = "rgba(255, 255, 255, 0.50)"
-          ctx.lineWidth = 2.0 * dpr
+          ctx.strokeStyle = "rgba(255, 255, 255, 0.60)"
+          ctx.lineWidth = 2.2 * dpr
           ctx.shadowColor = vibe.primary
-          ctx.shadowBlur = 8 * dpr
+          ctx.shadowBlur = 10 * dpr
           ctx.stroke()
           ctx.shadowBlur = 0
 
