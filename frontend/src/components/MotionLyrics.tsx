@@ -211,8 +211,27 @@ export default function MotionLyrics() {
   const smoothBassRef = useRef(0)
   const smoothMidRef = useRef(0)
   const smoothTrebleRef = useRef(0)
-  const smoothedSpectrumRef = useRef<Float32Array>(new Float32Array(64))
+  const smoothedSpectrumRef = useRef<Float32Array>(new Float32Array(128))
+  const sparksRef = useRef<
+    Array<{ angle: number; distFrac: number; speed: number; size: number; alpha: number; seed: number }>
+  >([])
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+
+  // Initialize 360° floating beat sparks (Specterr particle system)
+  useEffect(() => {
+    const pts = []
+    for (let i = 0; i < 48; i++) {
+      pts.push({
+        angle: Math.random() * Math.PI * 2,
+        distFrac: 1.05 + Math.random() * 0.95,
+        speed: 0.0018 + Math.random() * 0.0032,
+        size: 1.5 + Math.random() * 2.5,
+        alpha: 0.25 + Math.random() * 0.65,
+        seed: Math.random() * 100,
+      })
+    }
+    sparksRef.current = pts
+  }, [])
 
   // Soft mood vibe for subtle text glow
   const vibe: RgbVibe = useMemo(() => {
@@ -264,20 +283,24 @@ export default function MotionLyrics() {
       // Update Center Cover Pulse & Halo Bloom directly on DOM (60 FPS, 0 React re-renders)
       const raw = audioDsp.getReactivityData()
 
-      // ASUS Aura Sync Soft Sync Envelope Follower (silky liquid flow, zero abrupt flashing or continuous beating)
-      const smoothingFactor = 0.08
-      smoothBassRef.current += (raw.bassLevel - smoothBassRef.current) * smoothingFactor
-      smoothMidRef.current += (raw.midLevel - smoothMidRef.current) * smoothingFactor
-      smoothTrebleRef.current += (raw.trebleLevel - smoothTrebleRef.current) * smoothingFactor
+      // High-precision musical envelope follower (instant punchy attack, luxurious velvety decay)
+      const bassSpeed = raw.bassLevel > smoothBassRef.current ? 0.46 : 0.14
+      smoothBassRef.current += (raw.bassLevel - smoothBassRef.current) * bassSpeed
+
+      const midSpeed = raw.midLevel > smoothMidRef.current ? 0.40 : 0.12
+      smoothMidRef.current += (raw.midLevel - smoothMidRef.current) * midSpeed
+
+      const trebleSpeed = raw.trebleLevel > smoothTrebleRef.current ? 0.40 : 0.12
+      smoothTrebleRef.current += (raw.trebleLevel - smoothTrebleRef.current) * trebleSpeed
 
       if (coverContainerRef.current) {
-        // Subtle, elegant ~1.2% organic breathing scale (calm, stable visual anchor)
-        const breathScale = 1 + smoothBassRef.current * 0.012
-        coverContainerRef.current.style.transform = `scale(${breathScale})`
-        coverContainerRef.current.style.boxShadow = `0 16px 40px rgba(0,0,0,0.85), 0 0 25px ${hexToRgba(vibe.primary, 0.22)}`
+        // Iconic Specterr bass heartbeat punch on kicks and drops (~5.5% scale expansion)
+        const kickScale = 1 + smoothBassRef.current * 0.055
+        coverContainerRef.current.style.transform = `scale(${kickScale})`
+        coverContainerRef.current.style.boxShadow = `0 20px 60px rgba(0,0,0,0.9), 0 0 ${25 + smoothBassRef.current * 42}px ${hexToRgba(vibe.primary, 0.35 + smoothBassRef.current * 0.30)}`
       }
 
-      // Render 360° Symmetrical Radial Music EQ Waveform Visualizer (ASUS Aura Sync Soft Sync)
+      // Render Specterr / Trap Nation Circular Spectrum Visualizer
       const canvas = circularCanvasRef.current
       if (canvas) {
         const rect = canvas.getBoundingClientRect()
@@ -294,101 +317,185 @@ export default function MotionLyrics() {
           const cx = reqW / 2
           const cy = reqH / 2
 
-          // Cover diameter in canvas pixels (canvas is 260% of cover width)
-          const coverD = Math.min(reqW, reqH) / 2.6
-          const baseR = coverD * 0.70
+          // Cover diameter in canvas coordinates (canvas is 320% of circular cover disc)
+          const coverD = Math.min(reqW, reqH) / 3.2
+          const rInner = coverD * 0.5 // Exact boundary of the circular album cover disc
 
-          // Update smoothed 64-bin frequency spectrum with gentle low-pass filter
+          // Update smoothed 128-bin frequency spectrum for fluid, instantaneous EQ tracking
           const spectrum = audioDsp.getFullSpectrumData()
           const smoothedSpec = smoothedSpectrumRef.current
-          for (let i = 0; i < 64; i++) {
+          for (let i = 0; i < 128; i++) {
             const target = spectrum[i] || 0
-            smoothedSpec[i] += (target - smoothedSpec[i]) * 0.08
+            const spd = target > smoothedSpec[i] ? 0.48 : 0.14
+            smoothedSpec[i] += (target - smoothedSpec[i]) * spd
           }
 
-          // 1. Soft Breathing Velvet Halo (ASUS Aura Sync Ambient Cushion — Zero Glare)
-          const glowR = baseR * (1.10 + smoothBassRef.current * 0.10)
-          const glowGrad = ctx.createRadialGradient(cx, cy, baseR * 0.60, cx, cy, glowR)
-          glowGrad.addColorStop(0, hexToRgba(vibe.primary, 0.18 + smoothBassRef.current * 0.10))
-          glowGrad.addColorStop(0.55, hexToRgba(vibe.secondary, 0.08 + smoothMidRef.current * 0.06))
-          glowGrad.addColorStop(0.85, hexToRgba(vibe.accent, 0.02))
+          // 1. Soft Breathing Deep Velvet Halo (Underglow Cushion)
+          const glowR = rInner * (1.35 + smoothBassRef.current * 0.35)
+          const glowGrad = ctx.createRadialGradient(cx, cy, rInner * 0.75, cx, cy, glowR)
+          glowGrad.addColorStop(0, hexToRgba(vibe.primary, 0.28 + smoothBassRef.current * 0.20))
+          glowGrad.addColorStop(0.50, hexToRgba(vibe.secondary, 0.14 + smoothMidRef.current * 0.10))
+          glowGrad.addColorStop(0.85, hexToRgba(vibe.accent, 0.03))
           glowGrad.addColorStop(1, "transparent")
           ctx.fillStyle = glowGrad
           ctx.beginPath()
           ctx.arc(cx, cy, glowR, 0, Math.PI * 2)
           ctx.fill()
 
-          // 2. Inner Resonant Anchor Ring (Gentle resting contour)
-          ctx.beginPath()
-          ctx.arc(cx, cy, baseR * 1.025, 0, Math.PI * 2)
-          ctx.strokeStyle = hexToRgba(vibe.primary, 0.22 + smoothBassRef.current * 0.15)
-          ctx.lineWidth = 1.4 * dpr
-          ctx.stroke()
-
-          // 3. 64-Bar Symmetrical Radial Music EQ Waveform (ASUS Aura Sync Soft Ripples)
-          const N = 64
-          const rInner = baseR * 1.04
-          const crestPoints: Array<{ x: number; y: number }> = []
+          // 2. Generate 128-Point Bilateral Specterr Frequency Wave Coordinates
+          const N = 128
+          const maxWaveH = rInner * 0.58
+          const baseWavePad = rInner * 0.035
+          const outerPoints: Array<{ x: number; y: number; angle: number; rOuter: number; amp: number }> = []
 
           for (let i = 0; i < N; i++) {
             const angle = (i / N) * Math.PI * 2 - Math.PI / 2
 
-            const half = N / 2 // 32
+            // Bilateral symmetry (left and right channels mirror for balanced Trap Nation signature look)
+            const half = N / 2 // 64
             const specIdx = i < half
-              ? Math.floor((i / (half - 1)) * 42)
-              : Math.floor(((N - 1 - i) / (half - 1)) * 42)
-            const barAmp = smoothedSpec[specIdx] || 0
+              ? Math.floor((i / (half - 1)) * 127)
+              : Math.floor(((N - 1 - i) / (half - 1)) * 127)
+            const amp = smoothedSpec[specIdx] || 0
 
-            // Restrained, soft wave ripples (never harsh spikes!)
-            const minBarLen = baseR * 0.025
-            const dynamicLen = barAmp * (baseR * 0.12)
-            const totalBarLen = minBarLen + dynamicLen
+            // Powerful dynamic response: kick & 808 bursts create massive swell lobes, mids create rapid fluid ripples
+            const dynamicWaveH = (amp * 0.82 + smoothBassRef.current * 0.22) * maxWaveH
+            const totalH = baseWavePad + dynamicWaveH
+            const rOuter = rInner + totalH
 
-            const rOuter = rInner + totalBarLen
-            const x1 = cx + Math.cos(angle) * rInner
-            const y1 = cy + Math.sin(angle) * rInner
-            const x2 = cx + Math.cos(angle) * rOuter
-            const y2 = cy + Math.sin(angle) * rOuter
+            const px = cx + Math.cos(angle) * rOuter
+            const py = cy + Math.sin(angle) * rOuter
+            outerPoints.push({ x: px, y: py, angle, rOuter, amp })
+          }
 
-            crestPoints.push({ x: x2, y: y2 })
+          // 3. Secondary Ghost Echo Wave (Atmospheric 3D Depth Contour)
+          if (outerPoints.length > 2) {
+            ctx.beginPath()
+            const echoOffset = (5 + smoothBassRef.current * 6) * dpr
+            const p0x = outerPoints[0].x + Math.cos(outerPoints[0].angle) * echoOffset
+            const p0y = outerPoints[0].y + Math.sin(outerPoints[0].angle) * echoOffset
+            const pLastX = outerPoints[N - 1].x + Math.cos(outerPoints[N - 1].angle) * echoOffset
+            const pLastY = outerPoints[N - 1].y + Math.sin(outerPoints[N - 1].angle) * echoOffset
+            ctx.moveTo((p0x + pLastX) / 2, (p0y + pLastY) / 2)
 
-            // Soft jewel tones: smooth perimeter gradient without ANY eye-flashing white!
-            const colorFrac = Math.sin((i / N) * Math.PI)
-            const barAlpha = 0.35 + barAmp * 0.25
-            const barColor = colorFrac < 0.5
-              ? hexToRgba(vibe.primary, barAlpha)
-              : hexToRgba(vibe.secondary, barAlpha)
+            for (let i = 0; i < N; i++) {
+              const next = outerPoints[(i + 1) % N]
+              const p1x = outerPoints[i].x + Math.cos(outerPoints[i].angle) * echoOffset
+              const p1y = outerPoints[i].y + Math.sin(outerPoints[i].angle) * echoOffset
+              const p2x = next.x + Math.cos(next.angle) * echoOffset
+              const p2y = next.y + Math.sin(next.angle) * echoOffset
+              ctx.quadraticCurveTo(p1x, p1y, (p1x + p2x) / 2, (p1y + p2y) / 2)
+            }
+            ctx.closePath()
+            ctx.strokeStyle = hexToRgba(vibe.primary, 0.22 + smoothBassRef.current * 0.14)
+            ctx.lineWidth = 1.8 * dpr
+            ctx.stroke()
+          }
+
+          // 4. Primary Filled Liquid Spectrum Wave (The Iconic Specterr Radial Waveform)
+          if (outerPoints.length > 2) {
+            ctx.beginPath()
+            const firstMid = {
+              x: (outerPoints[0].x + outerPoints[N - 1].x) / 2,
+              y: (outerPoints[0].y + outerPoints[N - 1].y) / 2,
+            }
+            ctx.moveTo(firstMid.x, firstMid.y)
+            for (let i = 0; i < N; i++) {
+              const next = outerPoints[(i + 1) % N]
+              const midX = (outerPoints[i].x + next.x) / 2
+              const midY = (outerPoints[i].y + next.y) / 2
+              ctx.quadraticCurveTo(outerPoints[i].x, outerPoints[i].y, midX, midY)
+            }
+            // Trace counter-clockwise along the inner circular disc edge to create the filled donut wave
+            ctx.arc(cx, cy, rInner * 0.99, -Math.PI / 2, Math.PI * 1.5, true)
+            ctx.closePath()
+
+            // Radiant neon gradient fill from inner disc to outer wave peaks
+            const fillGrad = ctx.createRadialGradient(cx, cy, rInner, cx, cy, rInner + maxWaveH)
+            fillGrad.addColorStop(0, hexToRgba(vibe.primary, 0.78 + smoothBassRef.current * 0.18))
+            fillGrad.addColorStop(0.50, hexToRgba(vibe.secondary, 0.65 + smoothMidRef.current * 0.15))
+            fillGrad.addColorStop(0.88, hexToRgba(vibe.neonHighlight, 0.82))
+            fillGrad.addColorStop(1.0, hexToRgba(vibe.neonHighlight, 0.92))
+            ctx.fillStyle = fillGrad
+            ctx.fill()
+          }
+
+          // 5. Fine Radial Spectrum Frequency Pins (High-Density Audiophile Detail)
+          for (let i = 0; i < N; i += 2) {
+            const pt = outerPoints[i]
+            const x1 = cx + Math.cos(pt.angle) * rInner
+            const y1 = cy + Math.sin(pt.angle) * rInner
+            const x2 = cx + Math.cos(pt.angle) * pt.rOuter
+            const y2 = cy + Math.sin(pt.angle) * pt.rOuter
 
             ctx.beginPath()
             ctx.moveTo(x1, y1)
             ctx.lineTo(x2, y2)
-            ctx.strokeStyle = barColor
-            ctx.lineWidth = 2.0 * dpr
-            ctx.lineCap = "round"
+            ctx.strokeStyle = hexToRgba(vibe.primary, 0.28 + pt.amp * 0.35)
+            ctx.lineWidth = 1.3 * dpr
             ctx.stroke()
           }
 
-          // 4. Smooth Liquid Wave Crest Ribbon (Living organic membrane connecting bar crests)
-          if (crestPoints.length > 2) {
+          // 6. Glowing Neon Outer Crest Stroke (Crisp Perimeter Edge)
+          if (outerPoints.length > 2) {
             ctx.beginPath()
-            const last = crestPoints[N - 1]
-            const first = crestPoints[0]
-            ctx.moveTo((last.x + first.x) / 2, (last.y + first.y) / 2)
-
+            const firstMid = {
+              x: (outerPoints[0].x + outerPoints[N - 1].x) / 2,
+              y: (outerPoints[0].y + outerPoints[N - 1].y) / 2,
+            }
+            ctx.moveTo(firstMid.x, firstMid.y)
             for (let i = 0; i < N; i++) {
-              const next = crestPoints[(i + 1) % N]
-              const midX = (crestPoints[i].x + next.x) / 2
-              const midY = (crestPoints[i].y + next.y) / 2
-              ctx.quadraticCurveTo(crestPoints[i].x, crestPoints[i].y, midX, midY)
+              const next = outerPoints[(i + 1) % N]
+              const midX = (outerPoints[i].x + next.x) / 2
+              const midY = (outerPoints[i].y + next.y) / 2
+              ctx.quadraticCurveTo(outerPoints[i].x, outerPoints[i].y, midX, midY)
             }
             ctx.closePath()
 
-            ctx.strokeStyle = hexToRgba(vibe.secondary, 0.30 + smoothMidRef.current * 0.18)
-            ctx.lineWidth = 1.4 * dpr
-            ctx.shadowColor = vibe.primary
-            ctx.shadowBlur = 6 * dpr
+            ctx.strokeStyle = hexToRgba(vibe.neonHighlight, 0.95)
+            ctx.lineWidth = 2.4 * dpr
+            ctx.shadowColor = vibe.secondary
+            ctx.shadowBlur = 10 * dpr
             ctx.stroke()
             ctx.shadowBlur = 0
+          }
+
+          // 7. Inner Disc Rim Border (Clean Circular Disc Anchor)
+          ctx.beginPath()
+          ctx.arc(cx, cy, rInner, 0, Math.PI * 2)
+          ctx.strokeStyle = "rgba(255, 255, 255, 0.50)"
+          ctx.lineWidth = 2.0 * dpr
+          ctx.shadowColor = vibe.primary
+          ctx.shadowBlur = 8 * dpr
+          ctx.stroke()
+          ctx.shadowBlur = 0
+
+          // 8. Specterr 360° Floating Beat Sparks Emitter
+          const sparks = sparksRef.current
+          for (let i = 0; i < sparks.length; i++) {
+            const sp = sparks[i]
+            sp.distFrac += sp.speed * (1 + smoothBassRef.current * 2.2)
+            sp.angle += Math.sin(sp.seed + audioTime * 0.4) * 0.003
+            if (sp.distFrac > 2.1) {
+              sp.distFrac = 1.05 + Math.random() * 0.15
+              sp.angle = Math.random() * Math.PI * 2
+              sp.alpha = 0.25 + Math.random() * 0.65
+            }
+
+            const sparkR = rInner * sp.distFrac
+            const sx = cx + Math.cos(sp.angle) * sparkR
+            const sy = cy + Math.sin(sp.angle) * sparkR
+            const sparkAlpha = sp.alpha * Math.max(0, 1 - (sp.distFrac - 1.05) / 1.05)
+
+            if (sparkAlpha > 0.02) {
+              ctx.beginPath()
+              ctx.arc(sx, sy, sp.size * dpr, 0, Math.PI * 2)
+              ctx.fillStyle = hexToRgba(vibe.neonHighlight, sparkAlpha)
+              ctx.shadowColor = vibe.primary
+              ctx.shadowBlur = 6 * dpr
+              ctx.fill()
+              ctx.shadowBlur = 0
+            }
           }
         }
       }
@@ -672,36 +779,36 @@ export default function MotionLyrics() {
         <div className="relative flex flex-col items-center justify-center mb-4 sm:mb-6 select-none mx-auto">
           {/* Cover & 360° Circular Audio Waveform Halo Canvas Wrapper */}
           <div className="relative flex items-center justify-center">
-            {/* 360° Circular Audio-Reactive Waveform Halo Canvas */}
+            {/* 360° Circular Specterr Audio Spectrum Visualizer Canvas */}
             <canvas
               ref={circularCanvasRef}
               className="absolute pointer-events-none z-0"
               style={{
-                width: "260%",
-                height: "260%",
-                top: "-80%",
-                left: "-80%",
+                width: "320%",
+                height: "320%",
+                top: "-110%",
+                left: "-110%",
               }}
             />
 
-            {/* High-Res Center Cover Image with Real-time Beat Pulse */}
+            {/* High-Res Center Circular Cover Disc with Real-time Beat Pulse */}
             <div
               ref={coverContainerRef}
-              className="relative z-10 w-36 h-36 sm:w-48 sm:h-48 md:w-56 md:h-56 lg:w-64 lg:h-64 rounded-2xl sm:rounded-3xl overflow-hidden border border-white/20 shadow-[0_20px_50px_rgba(0,0,0,0.85)] transition-transform duration-100 ease-out flex-shrink-0 mx-auto"
+              className="relative z-10 w-40 h-40 sm:w-52 sm:h-52 md:w-60 md:h-60 lg:w-68 lg:h-68 rounded-full overflow-hidden border-2 border-white/25 shadow-[0_20px_60px_rgba(0,0,0,0.9)] transition-transform duration-75 ease-out flex-shrink-0 mx-auto"
               style={{
-                boxShadow: `0 16px 40px rgba(0,0,0,0.8), 0 0 35px ${hexToRgba(vibe.primary, 0.35)}`,
+                boxShadow: `0 20px 60px rgba(0,0,0,0.9), 0 0 35px ${hexToRgba(vibe.primary, 0.40)}`,
               }}
             >
               <img
                 src={getSongCover(currentSong, 600)}
                 alt={currentSong?.title}
-                className="w-full h-full object-cover"
+                className="w-full h-full object-cover rounded-full"
                 onError={(e) => {
                   e.currentTarget.src = "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=600&q=80"
                 }}
               />
-              {/* Soft Ambient Gloss Sheen */}
-              <div className="absolute inset-0 bg-gradient-to-tr from-black/25 via-transparent to-white/10 pointer-events-none" />
+              {/* Soft Vinyl Disc Ambient Gloss Sheen */}
+              <div className="absolute inset-0 bg-gradient-to-tr from-black/25 via-transparent to-white/10 pointer-events-none rounded-full" />
             </div>
           </div>
 

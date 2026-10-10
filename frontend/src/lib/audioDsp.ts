@@ -224,44 +224,62 @@ class AudioDspEngine {
       return { bassLevel: 0, midLevel: 0, trebleLevel: 0, overallLevel: 0 }
     }
     const audio = this.connectedElement || document.querySelector("audio")
-    // When paused, stopped or muted: ASUS Aura Sync rests in a completely calm, dark baseline (Zero Beating!)
-    if (!audio || audio.paused || audio.currentTime === 0) {
-      return { bassLevel: 0.04, midLevel: 0.04, trebleLevel: 0.03, overallLevel: 0.04 }
+    if (!audio || audio.paused) {
+      return { bassLevel: 0, midLevel: 0, trebleLevel: 0, overallLevel: 0 }
     }
 
     const t = audio.currentTime
-    const energy = Math.max(0.2, Math.min(1.0, this.trackContext.energy ?? 0.70))
+    const rawTempo = this.trackContext.tempo
+    const tempo = rawTempo && rawTempo >= 50 && rawTempo <= 220 ? rawTempo : 120
+    const energy = Math.max(0.2, Math.min(1.0, this.trackContext.energy ?? 0.75))
 
-    // ─── ASUS Aura Sync Music Mode: Soft Phrasing & Vocal Breathing ────
-    // Aura Sync uses smooth low-pass sinusoidal harmonic phrasing waves rather than artificial metronome spikes.
-    // 1. Bass Warmth (Deep ambient foundation — gentle, slow breathing; no 500ms kick hammering)
-    const bassBreathing = Math.sin(t * 0.95) * 0.5 + 0.5
-    const bassLevel = 0.06 + bassBreathing * 0.08 * energy
+    // True Musical Rhythm Calculation
+    const beatPeriod = 60 / tempo
+    const beatIndex = t / beatPeriod
+    const beatPhase = beatIndex % 1.0 // 0..1 phase within the beat
+    const beatInBar = Math.floor(beatIndex) % 4 // 0: downbeat (one), 1: two, 2: three, 3: four
 
-    // 2. Mids & Vocal Aura (Synchronizes directly with the singer vocalizing)
+    // 1. KICK & SUB-BASS (Downbeats & Grooves)
+    // Downbeat (beat 0) gets the highest punch; beat 2 gets secondary punch; 1 & 3 are backbeats
+    const isDownbeat = beatInBar === 0
+    const downbeatMultiplier = isDownbeat ? 1.0 : beatInBar === 2 ? 0.78 : 0.48
+    // Snappy exponential punch (instant attack, clean musical decay)
+    const kickAttack = Math.exp(-beatPhase * 6.0)
+    const kick = kickAttack * downbeatMultiplier
+    const bassLevel = Math.min(1.0, 0.18 + kick * 0.82 * (0.6 + energy * 0.4))
+
+    // 2. MIDS & VOCAL PRESENCE (Singing vs Snares)
+    const isBackbeat = beatInBar === 1 || beatInBar === 3
+    const snare = isBackbeat ? Math.exp(-beatPhase * 4.8) : 0
+
     let midLevel: number
     if (this.trackContext.isVocalsActive) {
-      // Singer is vocalizing: gentle glowing bloom proportional to sung words
+      // Singer is vocalizing: radiant bloom and expressive vocal amplitude
       const vocalWeight = this.trackContext.vocalWeight ?? 0.7
-      const vocalWave = (Math.sin(t * 1.8) * 0.5 + 0.5) * 0.04
-      midLevel = 0.07 + vocalWeight * 0.10 * energy + vocalWave
+      const vocalPulse = 0.55 + vocalWeight * 0.40 + Math.abs(Math.sin(t * 3.14)) * 0.10
+      midLevel = Math.min(1.0, vocalPulse + snare * 0.25)
     } else {
-      // Vocal pause / instrumental section: calm resting ambient level (Zero beating)
-      const ambientMelody = (Math.sin(t * 0.7) * 0.5 + 0.5) * 0.04 * energy
-      midLevel = 0.05 + ambientMelody
+      // Instrumental break: snare cadence and melodic harmonic swell
+      const barProgress = (beatIndex / 4) % 1.0
+      const harmonyFlow = Math.abs(Math.sin(barProgress * Math.PI * 2)) * 0.25
+      midLevel = Math.min(1.0, 0.18 + snare * 0.65 + harmonyFlow)
     }
 
-    // 3. Treble Air (Soft, gentle harmonic shimmer)
-    const trebleShimmer = (Math.sin(t * 1.5 + 1.2) * 0.5 + 0.5) * 0.04 * energy
-    const trebleLevel = 0.04 + trebleShimmer
+    // 3. TREBLE & AIR (Hi-hats, Acoustic Strings & Synths)
+    // 8th-note hi-hat pulse on the sub-beats
+    const hatPhase = (beatIndex * 2) % 1.0
+    const hat = Math.exp(-hatPhase * 5.8)
+    // 16th-note rhythmic micro-shimmer
+    const shimmer = Math.exp(-((beatIndex * 4) % 1.0) * 7.0) * 0.35
+    const trebleLevel = Math.min(1.0, 0.14 + (hat + shimmer) * 0.66 * (0.5 + energy * 0.5))
 
-    const overallLevel = bassLevel * 0.40 + midLevel * 0.45 + trebleLevel * 0.15
+    const overallLevel = Math.min(1.0, bassLevel * 0.42 + midLevel * 0.38 + trebleLevel * 0.20)
     return { bassLevel, midLevel, trebleLevel, overallLevel }
   }
 
   /**
    * Returns raw normalized frequency bin data for high-resolution visualizers.
-   * ASUS Aura Sync Soft Sync Mode: continuous harmonic ripples, zero spiky strobes.
+   * Each value is 0..1 representing the amplitude at that frequency bin.
    */
   public getFullSpectrumData(): Float32Array {
     if (typeof window !== "undefined") {
@@ -292,38 +310,62 @@ class AudioDspEngine {
       } catch {}
     }
 
-    // High-resolution synthesized musical spectrum (64 dynamic bins) — ASUS Aura Sync Mode
-    const binCount = 64
+    // High-resolution synthesized musical spectrum (128 dynamic bins for fluid circular waves)
+    const binCount = 128
     const result = new Float32Array(binCount)
     if (typeof window === "undefined") return result
     const audio = this.connectedElement || document.querySelector("audio")
-    if (!audio || audio.paused || audio.currentTime === 0) {
-      for (let i = 0; i < binCount; i++) result[i] = 0.02
-      return result
-    }
+    if (!audio || audio.paused) return result
 
     const t = audio.currentTime
-    const energy = Math.max(0.2, Math.min(1.0, this.trackContext.energy ?? 0.70))
-    const isVocals = Boolean(this.trackContext.isVocalsActive)
+    const rawTempo = this.trackContext.tempo
+    const tempo = rawTempo && rawTempo >= 50 && rawTempo <= 220 ? rawTempo : 120
+    const energy = Math.max(0.2, Math.min(1.0, this.trackContext.energy ?? 0.75))
+
+    const beatPeriod = 60 / tempo
+    const beatIndex = t / beatPeriod
+    const beatPhase = beatIndex % 1.0
+    const beatInBar = Math.floor(beatIndex) % 4
+    const isDownbeat = beatInBar === 0
+    const downbeatMult = isDownbeat ? 1.0 : beatInBar === 2 ? 0.82 : 0.52
+    // Explosive kick attack with snappy exponential decay
+    const kick = Math.exp(-beatPhase * 6.5) * downbeatMult
+    const isBackbeat = beatInBar === 1 || beatInBar === 3
+    const snare = isBackbeat ? Math.exp(-beatPhase * 5.0) : 0
+    const hatPhase = (beatIndex * 2) % 1.0
+    const hat = Math.exp(-hatPhase * 6.2)
+
+    const isVocals = this.trackContext.isVocalsActive
     const vocalWeight = this.trackContext.vocalWeight ?? 0.7
 
     for (let i = 0; i < binCount; i++) {
       const frac = i / binCount
-      // Bass bins (0 - 15): Soft low-end contour (max ~0.14)
-      const bassCurve = Math.max(0, 1 - frac * 3.2) * (0.05 + (Math.sin(t * 0.95 + i * 0.06) * 0.5 + 0.5) * 0.08 * energy)
 
-      // Mid / Vocal bins (16 - 40): Softly ripples when the singer vocalizes
-      const vocalAmp = isVocals ? (0.05 + vocalWeight * 0.08 * energy) : 0.03
-      const midCurve = Math.exp(-Math.pow((frac - 0.38) * 4.0, 2)) * (
-        vocalAmp + (Math.sin(t * 1.6 + i * 0.12) * 0.5 + 0.5) * 0.04 * energy
+      // 1. Sub-Bass & 808 Lobe Bins (0 - 28: Sub-bass 30Hz - 220Hz)
+      const bassEnvelope = Math.max(0, 1 - frac * 3.2)
+      const bassHarmonic = Math.abs(Math.sin(t * 6.28 + frac * 16.0)) * 0.18
+      const bassCurve = bassEnvelope * (0.24 + kick * 0.88 * (0.6 + energy * 0.4) + bassHarmonic)
+
+      // 2. Mid & Vocal Formants (29 - 82: 250Hz - 3.8kHz)
+      const midEnvelope = Math.exp(-Math.pow((frac - 0.42) * 3.8, 2))
+      const vocalRipples = Math.abs(Math.sin(t * 14.0 + i * 0.42)) * 0.22
+      const midCurve = midEnvelope * (
+        isVocals
+          ? (0.42 + vocalWeight * 0.48 + vocalRipples)
+          : (0.16 + snare * 0.72 + Math.abs(Math.sin(t * 4.0 + i * 0.25)) * 0.22)
       )
 
-      // Treble / Highs bins (41 - 63): Soft high-frequency air
-      const trebleCurve = Math.exp(-Math.pow((frac - 0.75) * 4.2, 2)) * (
-        0.03 + (Math.sin(t * 2.1 + i * 0.18) * 0.5 + 0.5) * 0.04 * energy
+      // 3. Treble & Air Shimmer (83 - 127: 4kHz - 18kHz)
+      const trebleEnvelope = Math.exp(-Math.pow((frac - 0.78) * 3.9, 2))
+      const trebleRipples = Math.abs(Math.cos(t * 18.0 + i * 0.5)) * 0.28
+      const trebleCurve = trebleEnvelope * (
+        0.12 + hat * 0.65 * (0.5 + energy * 0.5) + trebleRipples
       )
 
-      result[i] = Math.min(0.22, bassCurve + midCurve + trebleCurve)
+      // Fine micro-harmonic frequency peaks across the spectrum
+      const microPeak = (Math.sin(i * 1.57 + t * 8.0) > 0.6 ? 0.08 : 0.0) * energy
+
+      result[i] = Math.min(1.0, bassCurve + midCurve + trebleCurve + microPeak)
     }
     return result
   }
