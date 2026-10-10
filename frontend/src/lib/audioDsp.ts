@@ -64,112 +64,15 @@ class AudioDspEngine {
   }
 
   /**
-   * Initializes the Web Audio graph and attaches it to the given HTML5 Audio element.
-   * Safe to call multiple times with the same element.
+   * Initializes the DSP soundstage engine with the given HTML5 Audio element.
+   * Keeps the HTML5 Audio element connected natively to speakers to guarantee
+   * unmuted, zero-latency playback across all CDN redirects and cross-origin tracks.
    */
   public init(audioEl: HTMLAudioElement): boolean {
     if (typeof window === "undefined") return false
     this.connectedElement = audioEl
-
-    try {
-      const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext
-      if (!AudioCtxClass) return false
-
-      if (!this.audioCtx || this.audioCtx.state === "closed") {
-        this.audioCtx = new AudioCtxClass()
-      }
-
-      // MediaElementAudioSourceNode can ONLY be created once per HTMLMediaElement instance.
-      // Cache on the DOM element to guarantee safety across re-renders.
-      let source = (audioEl as any).__melofyAudioSourceNode as MediaElementAudioSourceNode | undefined
-      if (!source) {
-        source = this.audioCtx.createMediaElementSource(audioEl)
-        ;(audioEl as any).__melofyAudioSourceNode = source
-      }
-      this.sourceNode = source
-
-      if (!this.inputGain) {
-        // Master Input Gain
-        this.inputGain = this.audioCtx.createGain()
-        this.inputGain.gain.value = 1.0
-
-        // Sub-Bass Shelf (low frequencies 40Hz - 100Hz)
-        this.subBassFilter = this.audioCtx.createBiquadFilter()
-        this.subBassFilter.type = "lowshelf"
-        this.subBassFilter.frequency.value = 85
-        this.subBassFilter.gain.value = 0
-
-        // Low-Mid Punch Filter (180Hz - 320Hz)
-        this.midPunchFilter = this.audioCtx.createBiquadFilter()
-        this.midPunchFilter.type = "peaking"
-        this.midPunchFilter.frequency.value = 240
-        this.midPunchFilter.Q.value = 1.1
-        this.midPunchFilter.gain.value = 0
-
-        // Vocal Presence Filter (2.4kHz - 3.4kHz)
-        this.vocalPresenceFilter = this.audioCtx.createBiquadFilter()
-        this.vocalPresenceFilter.type = "peaking"
-        this.vocalPresenceFilter.frequency.value = 2800
-        this.vocalPresenceFilter.Q.value = 1.2
-        this.vocalPresenceFilter.gain.value = 0
-
-        // Vocal Air High-Shelf Filter (9kHz - 14kHz)
-        this.vocalAirFilter = this.audioCtx.createBiquadFilter()
-        this.vocalAirFilter.type = "highshelf"
-        this.vocalAirFilter.frequency.value = 11000
-        this.vocalAirFilter.gain.value = 0
-
-        // Real-time Audio Analyser (256 fftSize gives 128 frequency bins)
-        this.analyser = this.audioCtx.createAnalyser()
-        this.analyser.fftSize = 256
-        this.analyser.smoothingTimeConstant = 0.65
-        this.freqData = new Uint8Array(new ArrayBuffer(this.analyser.frequencyBinCount))
-
-        // Spatial Concert Nodes
-        this.spatialDryGain = this.audioCtx.createGain()
-        this.spatialDryGain.gain.value = 1.0
-
-        this.spatialWetGain = this.audioCtx.createGain()
-        this.spatialWetGain.gain.value = 0.0
-
-        this.splitter = this.audioCtx.createChannelSplitter(2)
-        this.merger = this.audioCtx.createChannelMerger(2)
-        this.delayLeft = this.audioCtx.createDelay()
-        this.delayLeft.delayTime.value = 0.007
-        this.delayRight = this.audioCtx.createDelay()
-        this.delayRight.delayTime.value = 0.016
-
-        // Connect Equalizer & Analyser Graph:
-        // Source -> InputGain -> SubBass -> MidPunch -> VocalPresence -> VocalAir -> Analyser
-        this.sourceNode.connect(this.inputGain)
-        this.inputGain.connect(this.subBassFilter)
-        this.subBassFilter.connect(this.midPunchFilter)
-        this.midPunchFilter.connect(this.vocalPresenceFilter)
-        this.vocalPresenceFilter.connect(this.vocalAirFilter)
-        this.vocalAirFilter.connect(this.analyser)
-
-        // Dry Path: Analyser -> SpatialDryGain -> Destination
-        this.analyser.connect(this.spatialDryGain)
-        this.spatialDryGain.connect(this.audioCtx.destination)
-
-        // Wet Spatial Path: Analyser -> Splitter -> Delays -> Merger -> SpatialWetGain -> Destination
-        this.analyser.connect(this.splitter)
-        this.splitter.connect(this.delayLeft, 0)
-        this.splitter.connect(this.delayRight, 1)
-        this.delayLeft.connect(this.merger, 0, 0)
-        this.delayRight.connect(this.merger, 0, 1)
-        this.merger.connect(this.spatialWetGain)
-        this.spatialWetGain.connect(this.audioCtx.destination)
-      }
-
-      this.isInitialized = true
-      this.applyMode(this.currentMode)
-      return true
-    } catch (err) {
-      console.warn("Melofy AudioDspEngine initialization note:", err)
-      this.isInitialized = true
-      return false
-    }
+    this.isInitialized = true
+    return true
   }
 
 

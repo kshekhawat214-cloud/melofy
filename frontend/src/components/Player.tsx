@@ -555,24 +555,16 @@ export default function Player() {
       {currentSong && (
         <audio
           ref={audioRef}
-          crossOrigin="anonymous"
           src={getFullAudioUrl(currentSong.streamUrl)}
           preload="auto"
           onPlay={() => {
             applyCurrentVolume()
-            if (audioRef.current) {
-              audioDsp.init(audioRef.current)
-              audioDsp.resume()
-            }
           }}
           onLoadStart={applyCurrentVolume}
           onLoadedData={applyCurrentVolume}
           onTimeUpdate={handleTimeUpdate}
           onLoadedMetadata={() => {
             applyCurrentVolume()
-            if (audioRef.current) {
-              audioDsp.init(audioRef.current)
-            }
             if (!restoredSeekAppliedRef.current) {
               restoredSeekAppliedRef.current = true
               const savedProgress = usePlayerStore.getState().progress
@@ -590,10 +582,6 @@ export default function Player() {
           onPlaying={() => {
             applyCurrentVolume()
             setIsBuffering(false)
-            if (audioRef.current) {
-              audioDsp.init(audioRef.current)
-              audioDsp.resume()
-            }
             if (currentSong) {
               audioRetryRef.current = { id: currentSong.id, count: 0 }
             }
@@ -601,10 +589,6 @@ export default function Player() {
           onCanPlay={() => {
             applyCurrentVolume()
             setIsBuffering(false)
-            if (audioRef.current) {
-              audioDsp.init(audioRef.current)
-              audioDsp.resume()
-            }
             if (currentSong) {
               audioRetryRef.current = { id: currentSong.id, count: 0 }
             }
@@ -633,14 +617,6 @@ export default function Player() {
             const audio = audioRef.current
             // Ignore normal AbortError when switching songs quickly
             if (audio && audio.error && audio.error.code === MediaError.MEDIA_ERR_ABORTED) {
-              return
-            }
-            // Graceful fallback for cross-origin restrictions if an external stream lacks CORS headers
-            if (audio && audio.crossOrigin) {
-              console.warn("Audio CORS policy restriction detected, falling back to direct stream playback...")
-              audio.removeAttribute("crossOrigin")
-              audio.load()
-              audio.play().catch(() => {})
               return
             }
             console.error("Audio stream error:", e)
