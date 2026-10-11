@@ -339,14 +339,17 @@ def decrypt_saavn_encrypted_url(encrypted_url: str) -> Optional[str]:
         return None
     try:
         import base64
-        from pyDes import des, ECB, PAD_PKCS5
+        try:
+            from services.pyDes import des, ECB, PAD_PKCS5
+        except ImportError:
+            from pyDes import des, ECB, PAD_PKCS5
         raw = base64.b64decode(encrypted_url)
         cipher = des(b"38346591", ECB, pad=None, padmode=PAD_PKCS5)
         decrypted = cipher.decrypt(raw).decode("utf-8")
         # Upgrade standard 96kbps preview to 320kbps full fidelity stream
         return decrypted.replace("_96.mp4", "_320.mp4")
     except Exception as e:
-        logger.debug(f"Saavn URL decryption note: {e}")
+        logger.warning(f"Saavn URL decryption note: {e}")
         return None
 
 

@@ -109,7 +109,7 @@ app = FastAPI(
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "version": "1.0.3"}
+    return {"status": "ok", "version": "1.0.4"}
 
 @app.get("/api/debug-stream-test")
 async def debug_stream_test(q: str = "Sailor Song Gigi Perez"):
@@ -119,7 +119,14 @@ async def debug_stream_test(q: str = "Sailor Song Gigi Perez"):
     # 1. Test Saavn
     t0 = time.time()
     try:
-        from services.downloader import resolve_jiosaavn_candidate
+        try:
+            import pyDes
+            report["pydes_imported"] = True
+        except Exception as pe:
+            report["pydes_imported"] = False
+            report["pydes_err"] = str(pe)
+
+        from services.downloader import resolve_jiosaavn_candidate, decrypt_saavn_encrypted_url
         cand = resolve_jiosaavn_candidate("Sailor Song", "Gigi Perez", "Sailor Song", 212)
         report["saavn"] = {
             "elapsed": round(time.time() - t0, 2),
@@ -127,6 +134,7 @@ async def debug_stream_test(q: str = "Sailor Song Gigi Perez"):
             "cand_title": cand.get("title") if cand else None,
             "has_direct_url": bool(cand.get("direct_url")) if cand else False,
             "direct_url": cand.get("direct_url")[:60] if cand and cand.get("direct_url") else None,
+            "keys": list(cand.keys()) if cand else [],
         }
     except Exception as e:
         report["saavn"] = {"error": str(e), "elapsed": round(time.time() - t0, 2)}
