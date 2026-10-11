@@ -109,7 +109,51 @@ app = FastAPI(
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "version": "1.0.2"}
+    return {"status": "ok", "version": "1.0.3"}
+
+@app.get("/api/debug-stream-test")
+async def debug_stream_test(q: str = "Sailor Song Gigi Perez"):
+    import time
+    report = {"query": q}
+    
+    # 1. Test Saavn
+    t0 = time.time()
+    try:
+        from services.downloader import resolve_jiosaavn_candidate
+        cand = resolve_jiosaavn_candidate("Sailor Song", "Gigi Perez", "Sailor Song", 212)
+        report["saavn"] = {
+            "elapsed": round(time.time() - t0, 2),
+            "found": bool(cand),
+            "cand_title": cand.get("title") if cand else None,
+            "has_direct_url": bool(cand.get("direct_url")) if cand else False,
+            "direct_url": cand.get("direct_url")[:60] if cand and cand.get("direct_url") else None,
+        }
+    except Exception as e:
+        report["saavn"] = {"error": str(e), "elapsed": round(time.time() - t0, 2)}
+        
+    # 2. Test YouTube
+    t1 = time.time()
+    try:
+        import yt_dlp
+        opts = {
+            "format": "bestaudio[ext=m4a]/bestaudio/best[ext=mp4]/best",
+            "quiet": True,
+            "socket_timeout": 8,
+            "extractor_args": {"youtube": {"player_client": ["visionos", "android"]}},
+        }
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info("ytsearch1:Sailor Song Gigi Perez official", download=False)
+            entries = info.get("entries", [])
+            report["youtube"] = {
+                "elapsed": round(time.time() - t1, 2),
+                "found": len(entries) > 0,
+                "title": entries[0].get("title") if entries else None,
+                "url": entries[0].get("url")[:60] if entries and entries[0].get("url") else None,
+            }
+    except Exception as e:
+        report["youtube"] = {"error": str(e), "elapsed": round(time.time() - t1, 2)}
+        
+    return report
 
 # CORS — allow Next.js frontend or any local machine
 app.add_middleware(
