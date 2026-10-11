@@ -211,6 +211,9 @@ export default function Player() {
       clearTimeout(audioRetryTimerRef.current)
     }
     audioRetryRef.current = { id: currentSong.id, count: 0 }
+    if (audioRef.current) {
+      audioRef.current.crossOrigin = "anonymous"
+    }
     hasLoggedPlayRef.current = false
     setIsBuffering(true)
     shouldPlayOnReadyRef.current = isPlaying
@@ -660,6 +663,9 @@ export default function Player() {
               if (audioRetryTimerRef.current) clearTimeout(audioRetryTimerRef.current)
               audioRetryTimerRef.current = setTimeout(() => {
                 if (audioRef.current && currentSong) {
+                  if (count >= 2) {
+                    audioRef.current.removeAttribute("crossorigin")
+                  }
                   const baseAudioUrl = getFullAudioUrl(currentSong.streamUrl)
                   const sep = baseAudioUrl.includes("?") ? "&" : "?"
                   audioRef.current.src = `${baseAudioUrl}${sep}_retry=${count}&_t=${Date.now()}`

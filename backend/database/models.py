@@ -79,10 +79,12 @@ if "libsql" in DATABASE_URL:
         logger.warning("sqlalchemy-libsql not available. Falling back to local SQLite.")
         DATABASE_URL = DEFAULT_SQLITE_URL
 
+from sqlalchemy.pool import NullPool
+
 if "sqlite" in DATABASE_URL and "libsql" not in DATABASE_URL:
     connect_args["check_same_thread"] = False
 
-engine = create_engine(DATABASE_URL, connect_args=connect_args)
+engine = create_engine(DATABASE_URL, connect_args=connect_args, poolclass=NullPool)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
@@ -237,7 +239,10 @@ def get_db():
     try:
         yield db
     finally:
-        db.close()
+        try:
+            db.close()
+        except Exception:
+            pass
 
 
 def create_tables():

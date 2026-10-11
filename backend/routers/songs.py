@@ -103,7 +103,11 @@ def proxy_remote_audio_stream(remote_url: str, request_range: str = None):
 
     try:
         upstream = requests.get(remote_url, headers=headers, stream=True, timeout=15.0)
-        status_code = upstream.status_code if upstream.status_code in [200, 206] else 200
+        if upstream.status_code not in [200, 206]:
+            upstream.close()
+            logger.warning(f"Remote stream returned status {upstream.status_code} for {remote_url[:60]}")
+            return RedirectResponse(url=remote_url, status_code=307, headers=STREAM_HEADERS)
+        status_code = upstream.status_code
 
         response_headers = {
             "Accept-Ranges": "bytes",
@@ -164,7 +168,7 @@ def options_stream_audio(song_id: str):
 
 
 @router.api_route("/songs/{song_id}/stream", methods=["GET", "HEAD"])
-async def stream_audio(song_id: str, request: Request, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+async def stream_audio(song_id: str, request: Request, background_tasks: BackgroundTasks):
     """
     Streams the audio file with instant sub-second response times.
     1. If cached on disk or remote CDN, streams immediately with HTTP 206 range support.
@@ -174,99 +178,114 @@ async def stream_audio(song_id: str, request: Request, background_tasks: Backgro
        a proxied stream with guaranteed CORS so user playback begins immediately, while caching to disk in background.
     """
     logger.info(f"Stream request for song: {song_id}")
+    song_meta = None
+    path = None
     try:
-        song = db.query(Song).filter(Song.id == song_id).first()
-        if not song:
-            song = db.query(Song).filter(Song.id.ilike(song_id)).first()
+        from database.models import SessionLocal
+        with SessionLocal() as db:
+            song = db.query(Song).filter(Song.id == song_id).first()
+            if not song:
+                song = db.query(Song).filter(Song.id.ilike(song_id)).first()
 
-        # On-demand import if valid Spotify track ID but not yet in database
-        if not song and len(song_id) == 22 and "-" not in song_id:
-            try:
-                from services.downloader import _scrape_spotify_track, resolve_song_cover_and_album
-                track_data = _scrape_spotify_track(song_id)
-                if track_data:
-                    cover, album = resolve_song_cover_and_album(song_id, track_data.get("title", ""), track_data.get("artist", ""), "")
-                    song = Song(
-                        id=track_data.get("id") or song_id,
-                        title=track_data.get("title") or "Unknown Title",
-                        artist=track_data.get("artist") or "Unknown Artist",
-                        album=album or track_data.get("album") or "Single",
-                        duration=track_data.get("duration") or 0,
-                        thumbnail_url=cover or track_data.get("thumbnail_url"),
-                        source_url=f"https://open.spotify.com/track/{song_id}",
-                        audio_path="",
-                    )
-                    db.add(song)
-                    db.commit()
-                    db.refresh(song)
-                    logger.info(f"On-demand created song record for stream {song_id} ('{song.title}')")
-            except Exception as auto_ingest_err:
-                logger.warning(f"On-demand Spotify track auto-ingest note: {auto_ingest_err}")
+            # On-demand import if valid Spotify track ID but not yet in database
+            if not song and len(song_id) == 22 and "-" not in song_id:
+                try:
+                    from services.downloader import _scrape_spotify_track, resolve_song_cover_and_album
+                    track_data = _scrape_spotify_track(song_id)
+                    if track_data:
+                        cover, album = resolve_song_cover_and_album(song_id, track_data.get("title", ""), track_data.get("artist", ""), "")
+                        song = Song(
+                            id=track_data.get("id") or song_id,
+                            title=track_data.get("title") or "Unknown Title",
+                            artist=track_data.get("artist") or "Unknown Artist",
+                            album=album or track_data.get("album") or "Single",
+                            duration=track_data.get("duration") or 0,
+                            thumbnail_url=cover or track_data.get("thumbnail_url"),
+                            source_url=f"https://open.spotify.com/track/{song_id}",
+                            audio_path="",
+                        )
+                        db.add(song)
+                        db.commit()
+                        db.refresh(song)
+                        logger.info(f"On-demand created song record for stream {song_id} ('{song.title}')")
+                except Exception as auto_ingest_err:
+                    logger.warning(f"On-demand Spotify track auto-ingest note: {auto_ingest_err}")
 
-        if not song:
-            raise HTTPException(status_code=404, detail="Song not found")
+            if not song:
+                raise HTTPException(status_code=404, detail="Song not found")
+
+            # Check local cache on disk
+            if song.audio_path:
+                p = Path(song.audio_path)
+                if p.is_absolute():
+                    if p.exists() and p.stat().st_size > 1024 * 50:
+                        path = p
+                    else:
+                        alt_name = BASE_DIR / "local_storage" / "audio" / p.name
+                        if alt_name.exists() and alt_name.stat().st_size > 1024 * 50:
+                            path = alt_name
+                            song.audio_path = f"local_storage/audio/{p.name}"
+                            db.commit()
+                else:
+                    rel_p = BASE_DIR / p
+                    if rel_p.exists() and rel_p.stat().st_size > 1024 * 50:
+                        path = rel_p
+                    else:
+                        alt_name = BASE_DIR / "local_storage" / "audio" / p.name
+                        if alt_name.exists() and alt_name.stat().st_size > 1024 * 50:
+                            path = alt_name
+                            song.audio_path = f"local_storage/audio/{p.name}"
+                            db.commit()
+
+            # Also search by song ID across all supported extensions
+            if not path or not path.exists() or path.stat().st_size < 1024 * 50:
+                for ext in ["m4a", "mp3", "mp4", "webm", "opus", "aac", "wav"]:
+                    alt_path = BASE_DIR / "local_storage" / "audio" / f"{song.id}.{ext}"
+                    if alt_path.exists() and alt_path.stat().st_size > 1024 * 50:
+                        path = alt_path
+                        song.audio_path = f"local_storage/audio/{song.id}.{ext}"
+                        db.commit()
+                        break
+
+            # Duration sanity check: purge wrong or truncated files
+            if path and path.exists() and path.stat().st_size > 1024 * 50 and song.duration and song.duration > 30:
+                try:
+                    from mutagen import File as MutagenFile
+                    f_audio = MutagenFile(str(path))
+                    if f_audio and f_audio.info and f_audio.info.length:
+                        actual_dur = f_audio.info.length
+                        diff = abs(actual_dur - song.duration)
+                        if diff > 15:
+                            logger.warning(
+                                f"Purging mismatched audio version for '{song.title}' "
+                                f"({actual_dur:.1f}s vs expected {song.duration:.1f}s, diff {diff:.1f}s > 15s) -> re-resolving authentic audio!"
+                            )
+                            path.unlink(missing_ok=True)
+                            path = None
+                            song.audio_path = ""
+                            db.commit()
+                except Exception as check_err:
+                    logger.info(f"Duration verification note: {check_err}")
+
+            song_meta = {
+                "id": song.id,
+                "title": song.title,
+                "artist": song.artist,
+                "album": song.album,
+                "duration": song.duration,
+                "thumbnail_url": song.thumbnail_url,
+                "source_url": song.source_url,
+                "audio_path": song.audio_path,
+            }
 
         request_range = request.headers.get("range")
         is_retry = bool(request.query_params.get("_retry"))
 
-        # 1. If audio is an external direct CDN URL (and not a retry after playback error), stream with guaranteed CORS
-        if not is_retry and song.audio_path and (song.audio_path.startswith("http://") or song.audio_path.startswith("https://")):
-            return proxy_remote_audio_stream(song.audio_path, request_range)
+        # 1. If audio is an external direct CDN URL, stream with guaranteed CORS
+        if not is_retry and song_meta["audio_path"] and (song_meta["audio_path"].startswith("http://") or song_meta["audio_path"].startswith("https://")):
+            return proxy_remote_audio_stream(song_meta["audio_path"], request_range)
 
-        path = None
-        if song.audio_path:
-            p = Path(song.audio_path)
-            if p.is_absolute():
-                if p.exists() and p.stat().st_size > 1024 * 50:
-                    path = p
-                else:
-                    alt_name = BASE_DIR / "local_storage" / "audio" / p.name
-                    if alt_name.exists() and alt_name.stat().st_size > 1024 * 50:
-                        path = alt_name
-                        song.audio_path = f"local_storage/audio/{p.name}"
-                        db.commit()
-            else:
-                rel_p = BASE_DIR / p
-                if rel_p.exists() and rel_p.stat().st_size > 1024 * 50:
-                    path = rel_p
-                else:
-                    alt_name = BASE_DIR / "local_storage" / "audio" / p.name
-                    if alt_name.exists() and alt_name.stat().st_size > 1024 * 50:
-                        path = alt_name
-                        song.audio_path = f"local_storage/audio/{p.name}"
-                        db.commit()
-
-        # Also search by song ID across all supported extensions
-        if not path or not path.exists() or path.stat().st_size < 1024 * 50:
-            for ext in ["m4a", "mp3", "mp4", "webm", "opus", "aac", "wav"]:
-                alt_path = BASE_DIR / "local_storage" / "audio" / f"{song.id}.{ext}"
-                if alt_path.exists() and alt_path.stat().st_size > 1024 * 50:
-                    path = alt_path
-                    song.audio_path = f"local_storage/audio/{song.id}.{ext}"
-                    db.commit()
-                    break
-
-        # 2. Sanity Check: Invalidate wrong versions (e.g. truncated preview or cover)
-        if path and path.exists() and path.stat().st_size > 1024 * 50 and song.duration and song.duration > 30:
-            try:
-                from mutagen import File as MutagenFile
-                f_audio = MutagenFile(str(path))
-                if f_audio and f_audio.info and f_audio.info.length:
-                    actual_dur = f_audio.info.length
-                    diff = abs(actual_dur - song.duration)
-                    if diff > 15:
-                        logger.warning(
-                            f"Purging mismatched audio version for '{song.title}' "
-                            f"({actual_dur:.1f}s vs expected {song.duration:.1f}s, diff {diff:.1f}s > 15s) -> re-resolving authentic audio!"
-                        )
-                        path.unlink(missing_ok=True)
-                        path = None
-                        song.audio_path = ""
-                        db.commit()
-            except Exception as check_err:
-                logger.info(f"Duration verification note: {check_err}")
-
-        # 3. If valid file is available on disk, serve it with HTTP 206 Range headers and RFC media type
+        # 2. If valid file is available on disk, serve it immediately with Range headers
         if path and path.exists() and path.stat().st_size > 1024 * 50:
             mime_type = get_audio_mime_type(path)
             return FileResponse(
@@ -275,31 +294,29 @@ async def stream_audio(song_id: str, request: Request, background_tasks: Backgro
                 headers=STREAM_HEADERS,
             )
 
-        # 4. Smart Sub-Second Stream Resolver (Resolves in < 1s!)
-        logger.info(f"Smart Fast Resolver triggered on-demand for '{song.title}' by '{song.artist}' ({song_id})")
+        # 3. Smart Sub-Second Stream Resolver
+        logger.info(f"Smart Fast Resolver triggered on-demand for '{song_meta['title']}' by '{song_meta['artist']}' ({song_id})")
         from services.downloader import resolve_direct_stream, smart_download
-        track_meta = {
-            "id": song.id,
-            "title": song.title,
-            "artist": song.artist,
-            "album": song.album,
-            "duration": song.duration,
-            "thumbnail_url": song.thumbnail_url,
-            "source_url": song.source_url,
-        }
 
         # Step A: High-speed direct CDN stream resolution (Returns in < 1s)
         try:
-            resolved = await resolve_direct_stream(track_meta)
+            resolved = await resolve_direct_stream(song_meta)
             if resolved and resolved.get("direct_url"):
                 direct_url = resolved["direct_url"]
-                logger.info(f"Fast CDN Stream found for '{song.title}' -> redirecting in < 1s!")
+                logger.info(f"Fast CDN Stream found for '{song_meta['title']}' -> streaming in < 1s!")
 
-                if resolved.get("duration") and not song.duration:
-                    song.duration = resolved["duration"]
-                if resolved.get("source_url") and not song.source_url:
-                    song.source_url = resolved["source_url"]
-                db.commit()
+                if resolved.get("duration") or resolved.get("source_url"):
+                    try:
+                        with SessionLocal() as up_db:
+                            s_up = up_db.query(Song).filter(Song.id == song_meta["id"]).first()
+                            if s_up:
+                                if resolved.get("duration") and not s_up.duration:
+                                    s_up.duration = resolved["duration"]
+                                if resolved.get("source_url") and not s_up.source_url:
+                                    s_up.source_url = resolved["source_url"]
+                                up_db.commit()
+                    except Exception:
+                        pass
 
                 # Schedule background download to disk for permanent offline caching
                 async def _bg_download(s_meta, s_url):
@@ -307,41 +324,43 @@ async def stream_audio(song_id: str, request: Request, background_tasks: Backgro
                         from database.models import SessionLocal as BgSession
                         bg_res = await smart_download(s_url, s_meta)
                         if bg_res and bg_res.get("audio_path"):
-                            bg_db = BgSession()
-                            try:
+                            with BgSession() as bg_db:
                                 s_rec = bg_db.query(Song).filter(Song.id == s_meta["id"]).first()
                                 if s_rec:
                                     s_rec.audio_path = f"local_storage/audio/{Path(bg_res['audio_path']).name}"
                                     bg_db.commit()
-                            finally:
-                                bg_db.close()
                     except Exception as bg_err:
                         logger.warning(f"Background stream cache failed: {bg_err}")
 
-                background_tasks.add_task(_bg_download, track_meta, song.source_url or "")
+                background_tasks.add_task(_bg_download, song_meta, song_meta["source_url"] or "")
                 return proxy_remote_audio_stream(direct_url, request_range)
         except Exception as resolve_err:
             logger.warning(f"Direct stream resolver passed to full download: {resolve_err}")
 
         # Step B: Fallback to full download
         try:
-            downloaded = await smart_download(song.source_url or "", track_meta)
+            downloaded = await smart_download(song_meta["source_url"] or "", song_meta)
             if downloaded and downloaded.get("audio_path") and Path(downloaded["audio_path"]).exists():
                 path = Path(downloaded["audio_path"])
-                song.audio_path = f"local_storage/audio/{path.name}"
-                if downloaded.get("duration") and not song.duration:
-                    song.duration = downloaded["duration"]
-                db.commit()
-                db.refresh(song)
-                logger.info(f"Smart Resolver completed for '{song.title}' -> {path}")
+                try:
+                    with SessionLocal() as up_db:
+                        s_up = up_db.query(Song).filter(Song.id == song_meta["id"]).first()
+                        if s_up:
+                            s_up.audio_path = f"local_storage/audio/{path.name}"
+                            if downloaded.get("duration") and not s_up.duration:
+                                s_up.duration = downloaded["duration"]
+                            up_db.commit()
+                except Exception:
+                    pass
+                logger.info(f"Smart Resolver completed for '{song_meta['title']}' -> {path}")
             else:
                 # Emergency Tier 4: Direct YouTube Mobile Stream Fallback
                 try:
                     from services.downloader import clean_song_title
                     import yt_dlp
                     import asyncio
-                    cl_title = clean_song_title(song.title)
-                    lead_art = song.artist.split(",")[0].strip() if song.artist else ""
+                    cl_title = clean_song_title(song_meta["title"])
+                    lead_art = song_meta["artist"].split(",")[0].strip() if song_meta["artist"] else ""
                     em_query = f"ytsearch1:{cl_title} {lead_art} official"
                     logger.info(f"Emergency Tier 4 stream fallback for: {em_query}")
                     ydl_em_opts = {
@@ -363,7 +382,7 @@ async def stream_audio(song_id: str, request: Request, background_tasks: Backgro
                         em_data = await asyncio.get_event_loop().run_in_executor(None, lambda: em_ydl.extract_info(em_query, download=False))
                         em_entries = em_data.get("entries", []) if em_data else []
                         if em_entries and em_entries[0].get("url"):
-                            logger.info(f"Emergency Tier 4 succeeded for '{song.title}' -> streaming immediately!")
+                            logger.info(f"Emergency Tier 4 succeeded for '{song_meta['title']}' -> streaming immediately!")
                             return proxy_remote_audio_stream(em_entries[0]["url"], request_range)
                 except Exception as em_err:
                     logger.warning(f"Emergency Tier 4 stream fallback note: {em_err}")
