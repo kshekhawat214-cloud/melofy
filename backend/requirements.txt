@@ -15,3 +15,4 @@ libsql-client>=0.3.1
 gradio>=4.44.0
 spotipy>=2.24.0
 sqlalchemy-libsql>=0.2.0
+pyDes>=2.0.1

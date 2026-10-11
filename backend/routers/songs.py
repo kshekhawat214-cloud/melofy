@@ -91,13 +91,15 @@ def get_audio_mime_type(file_path: Path) -> str:
     return guessed or "audio/mp4"
 
 
-def proxy_remote_audio_stream(remote_url: str, request_range: str = None):
+def proxy_remote_audio_stream(remote_url: str, request_range: str = None, custom_headers: dict = None):
     """Proxies remote CDN audio stream chunk-by-chunk with full CORS and HTTP 206 Range headers."""
     import requests
 
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
     }
+    if custom_headers and isinstance(custom_headers, dict):
+        headers.update(custom_headers)
     if request_range:
         headers["Range"] = request_range
 
@@ -106,7 +108,9 @@ def proxy_remote_audio_stream(remote_url: str, request_range: str = None):
         if upstream.status_code not in [200, 206]:
             upstream.close()
             logger.warning(f"Remote stream returned status {upstream.status_code} for {remote_url[:60]}")
-            return RedirectResponse(url=remote_url, status_code=307, headers=STREAM_HEADERS)
+            if "googlevideo.com" not in remote_url:
+                return RedirectResponse(url=remote_url, status_code=307, headers=STREAM_HEADERS)
+            raise HTTPException(status_code=502, detail=f"Upstream stream returned {upstream.status_code}")
         status_code = upstream.status_code
 
         response_headers = {
@@ -140,7 +144,9 @@ def proxy_remote_audio_stream(remote_url: str, request_range: str = None):
         )
     except Exception as proxy_err:
         logger.warning(f"Audio stream proxy fallback to redirect: {proxy_err}")
-        return RedirectResponse(url=remote_url, status_code=307, headers=STREAM_HEADERS)
+        if "googlevideo.com" not in remote_url:
+            return RedirectResponse(url=remote_url, status_code=307, headers=STREAM_HEADERS)
+        raise HTTPException(status_code=502, detail=f"Audio proxy failed: {proxy_err}")
 
 
 @router.options("/proxy-audio")
@@ -333,7 +339,7 @@ async def stream_audio(song_id: str, request: Request, background_tasks: Backgro
                         logger.warning(f"Background stream cache failed: {bg_err}")
 
                 background_tasks.add_task(_bg_download, song_meta, song_meta["source_url"] or "")
-                return proxy_remote_audio_stream(direct_url, request_range)
+                return proxy_remote_audio_stream(direct_url, request_range, resolved.get("http_headers"))
         except Exception as resolve_err:
             logger.warning(f"Direct stream resolver passed to full download: {resolve_err}")
 
@@ -354,7 +360,7 @@ async def stream_audio(song_id: str, request: Request, background_tasks: Backgro
                     pass
                 logger.info(f"Smart Resolver completed for '{song_meta['title']}' -> {path}")
             else:
-                # Emergency Tier 4: Direct YouTube Mobile Stream Fallback
+                # Emergency Tier 4: Direct YouTube Stream Fallback (visionos / android)
                 try:
                     from services.downloader import clean_song_title
                     import yt_dlp
@@ -364,18 +370,18 @@ async def stream_audio(song_id: str, request: Request, background_tasks: Backgro
                     em_query = f"ytsearch1:{cl_title} {lead_art} official"
                     logger.info(f"Emergency Tier 4 stream fallback for: {em_query}")
                     ydl_em_opts = {
-                        "format": "bestaudio/best",
+                        "format": "bestaudio[ext=m4a]/bestaudio/best[ext=mp4]/best",
                         "quiet": True,
                         "noplaylist": True,
                         "nocheckcertificate": True,
                         "socket_timeout": 8,
                         "extractor_args": {
                             "youtube": {
-                                "player_client": ["android", "ios", "mweb", "web"]
+                                "player_client": ["visionos", "android"]
                             }
                         },
                         "http_headers": {
-                            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
                         },
                     }
                     with yt_dlp.YoutubeDL(ydl_em_opts) as em_ydl:
@@ -383,7 +389,7 @@ async def stream_audio(song_id: str, request: Request, background_tasks: Backgro
                         em_entries = em_data.get("entries", []) if em_data else []
                         if em_entries and em_entries[0].get("url"):
                             logger.info(f"Emergency Tier 4 succeeded for '{song_meta['title']}' -> streaming immediately!")
-                            return proxy_remote_audio_stream(em_entries[0]["url"], request_range)
+                            return proxy_remote_audio_stream(em_entries[0]["url"], request_range, em_entries[0].get("http_headers"))
                 except Exception as em_err:
                     logger.warning(f"Emergency Tier 4 stream fallback note: {em_err}")
 

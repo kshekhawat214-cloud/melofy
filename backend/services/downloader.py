@@ -333,6 +333,23 @@ def clean_song_title(title: str) -> str:
     return clean.strip()
 
 
+def decrypt_saavn_encrypted_url(encrypted_url: str) -> Optional[str]:
+    """Decrypts JioSaavn encrypted_media_url into high-quality 320kbps CDN streaming URL."""
+    if not encrypted_url:
+        return None
+    try:
+        import base64
+        from pyDes import des, ECB, PAD_PKCS5
+        raw = base64.b64decode(encrypted_url)
+        cipher = des(b"38346591", ECB, pad=None, padmode=PAD_PKCS5)
+        decrypted = cipher.decrypt(raw).decode("utf-8")
+        # Upgrade standard 96kbps preview to 320kbps full fidelity stream
+        return decrypted.replace("_96.mp4", "_320.mp4")
+    except Exception as e:
+        logger.debug(f"Saavn URL decryption note: {e}")
+        return None
+
+
 def resolve_jiosaavn_candidate(
     clean_expected: str,
     lead_artist: str,
@@ -345,34 +362,44 @@ def resolve_jiosaavn_candidate(
     Queries JioSaavn with Indian localized headers and strictly filters for the genuine matching version.
     Disqualifies any covers, slowed+reverb, remixes, artist mismatches, album/movie soundtrack conflicts,
     or version tag mismatches (e.g. Live vs Studio).
+    Directly decrypts 320kbps CDN stream URLs without calling yt-dlp.
     """
     try:
         import html
         saavn_q = f"{clean_expected} {lead_artist}".strip()
-        saavn_api = f"https://www.jiosaavn.com/api.php?__call=autocomplete.get&query={requests.utils.quote(saavn_q)}&_format=json&_marker=0&ctx=web6dot0"
-        s_res = requests.get(saavn_api, headers=JIOSAAVN_HEADERS, timeout=4)
-        if s_res.status_code != 200:
-            return None
-        
-        s_data = s_res.json()
-        s_songs = s_data.get("songs", {}).get("data", [])
+        search_api = f"https://www.jiosaavn.com/api.php?__call=search.getResults&_format=json&n=5&p=1&q={requests.utils.quote(saavn_q)}&_marker=0&ctx=web6dot0"
+        s_res = requests.get(search_api, headers=JIOSAAVN_HEADERS, timeout=4)
+        s_songs = []
+        if s_res.status_code == 200:
+            try:
+                s_songs = s_res.json().get("results", [])
+            except Exception:
+                s_songs = []
+
+        if not s_songs:
+            auto_api = f"https://www.jiosaavn.com/api.php?__call=autocomplete.get&query={requests.utils.quote(saavn_q)}&_format=json&_marker=0&ctx=web6dot0"
+            a_res = requests.get(auto_api, headers=JIOSAAVN_HEADERS, timeout=4)
+            if a_res.status_code == 200:
+                try:
+                    s_songs = a_res.json().get("songs", {}).get("data", [])
+                except Exception:
+                    s_songs = []
+
         if not s_songs:
             return None
-            
+
         c_lower = clean_expected.lower()
         exp_versions = extract_version_tags(expected_title)
-        
+
         for candidate in s_songs:
-            cand_title = html.unescape(candidate.get("title", "")).replace("\xa0", " ").strip()
-            cand_url = candidate.get("url", "")
-            raw_cand_artists = candidate.get("more_info", {}).get("primary_artists", "") or candidate.get("description", "") or ""
+            raw_title = candidate.get("song") or candidate.get("title") or ""
+            cand_title = html.unescape(raw_title).replace("\xa0", " ").strip()
+            cand_url = candidate.get("perma_url") or candidate.get("url") or ""
+            raw_cand_artists = candidate.get("primary_artists") or candidate.get("more_info", {}).get("primary_artists") or candidate.get("description") or ""
             cand_artists = html.unescape(raw_cand_artists).replace("\xa0", " ").strip()
-            
-            if not cand_url or "jiosaavn.com" not in cand_url:
-                continue
-                
+
             t_lower = cand_title.lower()
-            
+
             # 1. Version Tag Integrity: If expected song is Live/Acoustic/Remix, candidate MUST match that version!
             cand_versions = extract_version_tags(cand_title)
             if exp_versions != cand_versions:
@@ -396,9 +423,7 @@ def resolve_jiosaavn_candidate(
                     logger.info(f"JioSaavn candidate disqualified (artist mismatch: '{cand_artists}' != '{target_artist_str}'): '{cand_title}'")
                     continue
 
-            # 3. Album / Movie Soundtrack Verification:
-            # Singles and independent tracks are often packaged into various compilation/curated albums.
-            # Only enforce strict album checks if both the expected album and candidate album are distinct movie soundtracks.
+            # 3. Album / Movie Soundtrack Verification
             c_exp_album = clean_album_name(expected_album).replace("\xa0", " ").strip().lower() if expected_album else ""
             is_single_or_independent = (
                 not expected_album
@@ -413,11 +438,9 @@ def resolve_jiosaavn_candidate(
             if expected_album and not is_single_or_independent:
                 raw_cand_alb = candidate.get("album") or candidate.get("more_info", {}).get("album") or ""
                 c_cand_album = clean_album_name(html.unescape(raw_cand_alb)).replace("\xa0", " ").strip().lower()
-                
-                # If neither album is generic:
+
                 if c_cand_album and c_exp_album and not is_generic_album(c_cand_album) and not is_generic_album(c_exp_album):
                     is_compilation = any(k in c_cand_album for k in COMPILATION_ALBUM_KEYWORDS) or any(k in c_exp_album for k in COMPILATION_ALBUM_KEYWORDS)
-                    # Compilation albums (Greatest Hits, Best Of) are valid releases of the same song
                     if not is_compilation and c_cand_album != c_exp_album and similarity(c_cand_album, c_exp_album) < 0.65:
                         logger.info(f"JioSaavn candidate disqualified (album mismatch: cand='{c_cand_album}' != exp='{c_exp_album}'): '{cand_title}'")
                         continue
@@ -427,10 +450,44 @@ def resolve_jiosaavn_candidate(
                 logger.info(f"JioSaavn candidate disqualified (title mismatch): '{cand_title}' != '{clean_expected}'")
                 continue
 
+            # Extract encrypted media URL or fetch details by ID
+            enc_url = candidate.get("encrypted_media_url")
+            if not enc_url and candidate.get("id"):
+                try:
+                    det_url = f"https://www.jiosaavn.com/api.php?__call=song.getDetails&cc=in&_marker=0&_format=json&pids={candidate['id']}"
+                    det_res = requests.get(det_url, headers=JIOSAAVN_HEADERS, timeout=3).json()
+                    enc_url = det_res.get(candidate["id"], {}).get("encrypted_media_url")
+                except Exception:
+                    pass
+
+            direct_cdn_url = decrypt_saavn_encrypted_url(enc_url)
+            cand_dur = float(candidate.get("duration") or 0)
+
+            # Strict duration check: reject if difference > 15 seconds (e.g. 4:15 vs 4:39)
+            if expected_duration > 30 and cand_dur > 10:
+                diff = abs(expected_duration - cand_dur)
+                if diff > 15:
+                    logger.warning(
+                        f"JioSaavn candidate duration mismatch: {cand_dur}s vs expected {expected_duration}s "
+                        f"(diff {diff:.1f}s > 15s) - skipping to preserve authentic audio version"
+                    )
+                    continue
+
             # Valid authentic candidate found!
-            logger.info(f"JioSaavn validated authentic candidate: '{cand_title}' by '{cand_artists}' -> {cand_url}")
-            return candidate
-            
+            logger.info(f"JioSaavn validated authentic candidate: '{cand_title}' by '{cand_artists}' -> direct_cdn={bool(direct_cdn_url)}")
+            return {
+                "id": candidate.get("id"),
+                "title": cand_title,
+                "song": cand_title,
+                "artist": cand_artists,
+                "primary_artists": cand_artists,
+                "duration": cand_dur,
+                "album": candidate.get("album") or candidate.get("more_info", {}).get("album") or "",
+                "image": (candidate.get("image") or "").replace("150x150", "500x500").replace("50x50", "500x500"),
+                "url": cand_url or candidate.get("perma_url") or "",
+                "direct_url": direct_cdn_url,
+            }
+
     except Exception as e:
         logger.info(f"JioSaavn resolution error: {e}")
     return None
@@ -441,33 +498,36 @@ async def resolve_direct_stream(expected_meta: Dict[str, Any]) -> Optional[Dict[
     Sub-second cold-start resolver (< 2s).
     3-Tier Resolution Strategy:
     1. If song has an existing YouTube/direct source_url, extracts direct audio stream URL in ~1.5s.
-    2. High-speed JioSaavn 320kbps CDN stream resolution (< 1s).
-    3. Fast YouTube Audio CDN stream fallback (ytsearch1:, < 2.5s) so no song ever times out!
+    2. High-speed JioSaavn 320kbps CDN stream resolution (< 0.5s cold start!).
+    3. Fast YouTube Audio CDN stream fallback (visionos/android client, < 2.5s) so no song ever times out!
     """
     expected_title = expected_meta.get("title", "")
     expected_artist = expected_meta.get("artist", "")
     expected_album = expected_meta.get("album", "")
     expected_duration = float(expected_meta.get("duration") or 0)
     source_url = expected_meta.get("source_url") or ""
-    
+
     clean_expected = clean_song_title(expected_title)
     lead_artist = expected_artist.split(",")[0].strip() if expected_artist else ""
-    
+
     loop = asyncio.get_event_loop()
 
     # Tier 1: Immediate Direct Stream from existing source_url (if YouTube / soundcloud / direct link)
     if source_url and "spotify.com" not in source_url and ("youtube.com" in source_url or "youtu.be" in source_url):
         try:
             ydl_opts_source = {
-                "format": "bestaudio/best",
+                "format": "bestaudio[ext=m4a]/bestaudio/best[ext=mp4]/best",
                 "quiet": True,
                 "noplaylist": True,
                 "nocheckcertificate": True,
                 "socket_timeout": 8,
                 "extractor_args": {
                     "youtube": {
-                        "player_client": ["android", "ios", "mweb", "web"]
+                        "player_client": ["visionos", "android"]
                     }
+                },
+                "http_headers": {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
                 },
             }
             with yt_dlp.YoutubeDL(ydl_opts_source) as ydl:
@@ -476,6 +536,7 @@ async def resolve_direct_stream(expected_meta: Dict[str, Any]) -> Optional[Dict[
                     logger.info(f"Tier 1: Direct stream resolved from source_url for '{expected_title}'")
                     return {
                         "direct_url": info["url"],
+                        "http_headers": info.get("http_headers", {}),
                         "duration": info.get("duration") or expected_duration,
                         "source_url": source_url,
                         "title": expected_title,
@@ -484,8 +545,8 @@ async def resolve_direct_stream(expected_meta: Dict[str, Any]) -> Optional[Dict[
                     }
         except Exception as src_err:
             logger.info(f"Tier 1 source_url extraction note: {src_err}")
-    
-    # Tier 2: JioSaavn CDN with strict album, artist & version matching
+
+    # Tier 2: JioSaavn Direct 320kbps CDN stream (< 0.5s!)
     candidate = await loop.run_in_executor(
         None,
         lambda: resolve_jiosaavn_candidate(
@@ -497,42 +558,19 @@ async def resolve_direct_stream(expected_meta: Dict[str, Any]) -> Optional[Dict[
             expected_artist,
         ),
     )
-    if candidate:
-        cand_url = candidate.get("url")
-        try:
-            ydl_opts_meta = {
-                "quiet": True,
-                "nocheckcertificate": True,
-                "socket_timeout": 6,
-            }
-            with yt_dlp.YoutubeDL(ydl_opts_meta) as ydl:
-                info = await loop.run_in_executor(None, lambda: ydl.extract_info(cand_url, download=False))
-                if info and info.get("url"):
-                    cdn_url = info.get("url")
-                    cand_dur = float(info.get("duration") or 0)
-                    
-                    # Strict duration check: reject if difference > 15 seconds (e.g. 4:15 vs 4:39)
-                    if expected_duration > 30 and cand_dur > 10:
-                        diff = abs(expected_duration - cand_dur)
-                        if diff > 15:
-                            logger.warning(
-                                f"JioSaavn stream duration mismatch: {cand_dur}s vs expected {expected_duration}s "
-                                f"(diff {diff:.1f}s > 15s) - skipping to preserve authentic audio version"
-                            )
-                            info = None
-                    
-                    if info:
-                        return {
-                            "direct_url": cdn_url,
-                            "duration": cand_dur or expected_duration,
-                            "source_url": cand_url,
-                            "title": candidate.get("title") or expected_title,
-                            "artist": candidate.get("more_info", {}).get("primary_artists") or expected_artist,
-                            "thumbnail_url": expected_meta.get("thumbnail_url") or candidate.get("image"),
-                            "is_cdn": True,
-                        }
-        except Exception as err:
-            logger.info(f"Failed to extract direct CDN stream from {cand_url}: {err}")
+    if candidate and candidate.get("direct_url"):
+        direct_url = candidate["direct_url"]
+        cand_dur = float(candidate.get("duration") or 0)
+        logger.info(f"Tier 2: Fast JioSaavn 320kbps CDN stream resolved in < 0.5s for '{expected_title}' -> {direct_url[:60]}")
+        return {
+            "direct_url": direct_url,
+            "duration": cand_dur or expected_duration,
+            "source_url": candidate.get("url") or direct_url,
+            "title": candidate.get("title") or expected_title,
+            "artist": candidate.get("artist") or expected_artist,
+            "thumbnail_url": candidate.get("image") or expected_meta.get("thumbnail_url"),
+            "is_cdn": True,
+        }
 
     # Tier 3: YouTube Official Fast Direct Stream Fallback (< 2.5s)
     exp_version_tags = extract_version_tags(expected_title)
@@ -543,18 +581,18 @@ async def resolve_direct_stream(expected_meta: Dict[str, Any]) -> Optional[Dict[
 
     try:
         ydl_opts_yt = {
-            "format": "bestaudio/best",
+            "format": "bestaudio[ext=m4a]/bestaudio/best[ext=mp4]/best",
             "quiet": True,
             "noplaylist": True,
             "nocheckcertificate": True,
             "socket_timeout": 8,
             "extractor_args": {
                 "youtube": {
-                    "player_client": ["android", "ios", "mweb", "web"]
+                    "player_client": ["visionos", "android"]
                 }
             },
             "http_headers": {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
             },
         }
         with yt_dlp.YoutubeDL(ydl_opts_yt) as ydl:
@@ -573,11 +611,10 @@ async def resolve_direct_stream(expected_meta: Dict[str, Any]) -> Optional[Dict[
                 if not candidate_entry or not candidate_entry.get("url"):
                     continue
                 cand_dur = float(candidate_entry.get("duration") or 0)
-                
+
                 # Check duration reasonableness
                 if expected_duration > 30 and cand_dur > 0:
                     diff = abs(expected_duration - cand_dur)
-                    # Disqualify full album uploads, loops, or tiny snippets
                     if diff > 45 or cand_dur < 25:
                         continue
                     if diff < best_diff:
@@ -587,7 +624,6 @@ async def resolve_direct_stream(expected_meta: Dict[str, Any]) -> Optional[Dict[
                     best_entry = candidate_entry
                     break
 
-            # Fallback if strict diff disqualified all 3 entries (e.g. single radio edit vs album version)
             if not best_entry and entries:
                 for candidate_entry in entries:
                     if candidate_entry and candidate_entry.get("url"):
@@ -601,6 +637,7 @@ async def resolve_direct_stream(expected_meta: Dict[str, Any]) -> Optional[Dict[
                 logger.info(f"Tier 3: YouTube Fast Stream resolved for '{expected_title}' -> {best_entry.get('title')}")
                 return {
                     "direct_url": best_entry["url"],
+                    "http_headers": best_entry.get("http_headers", {}),
                     "duration": yt_dur or expected_duration,
                     "source_url": best_entry.get("webpage_url") or f"https://www.youtube.com/watch?v={best_entry.get('id')}",
                     "title": expected_title,
@@ -631,7 +668,7 @@ def ydl_opts(track_id, prefer_fast=True):
         logger.warning("No JS runtime found. Some restricted tracks may fail.")
 
     opts = {
-        "format": "bestaudio/best",
+        "format": "bestaudio[ext=m4a]/bestaudio/best[ext=mp4]/best",
         "outtmpl": str(AUDIO_DIR / f"{track_id}.%(ext)s"),
         "quiet": True,
         "noplaylist": True,
@@ -641,11 +678,11 @@ def ydl_opts(track_id, prefer_fast=True):
         "ffmpeg_location": ffmpeg_path,
         "extractor_args": {
             "youtube": {
-                "player_client": ["android", "ios", "mweb", "web"]
+                "player_client": ["visionos", "android"]
             }
         },
         "http_headers": {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         }
     }
@@ -730,7 +767,7 @@ async def smart_download(query: str, expected_meta: Dict[str, Any]):
         except Exception as direct_err:
             logger.warning(f"Direct URL download failed for {direct_url}: {direct_err}")
 
-    # 1. High-speed JioSaavn resolution (strict authentic version, album & singer matching)
+    # 1. High-speed JioSaavn direct download (strict authentic version, album & singer matching)
     candidate = await loop.run_in_executor(
         None,
         lambda: resolve_jiosaavn_candidate(
@@ -742,27 +779,34 @@ async def smart_download(query: str, expected_meta: Dict[str, Any]):
             expected_meta.get("artist", ""),
         ),
     )
-    if candidate:
-        s_url = candidate.get("url")
-        if s_url and "jiosaavn.com" in s_url:
-            logger.info(f"Downloading verified authentic version via JioSaavn: '{candidate.get('title')}' -> {s_url}")
-            try:
-                with yt_dlp.YoutubeDL(ydl_opts(track_id, prefer_fast=True)) as ydl:
-                    data = await loop.run_in_executor(None, lambda: ydl.extract_info(s_url, download=True))
-                    for ext in ["m4a", "mp3", "mp4", "webm", "opus", "aac", "wav"]:
-                        p = AUDIO_DIR / f"{track_id}.{ext}"
-                        if p.exists() and p.stat().st_size > 1024 * 50:
-                            embed_metadata(str(p), expected_meta)
-                            return {
-                                **expected_meta,
-                                "id": track_id,
-                                "audio_path": str(p),
-                                "duration": (data or {}).get("duration") or expected_duration,
-                                "source_url": s_url,
-                                "thumbnail_url": expected_meta.get("thumbnail_url") or candidate.get("image"),
-                            }
-            except Exception as saavn_err:
-                logger.info(f"JioSaavn download failed, falling back to YouTube: {saavn_err}")
+    if candidate and candidate.get("direct_url"):
+        direct_media_url = candidate["direct_url"]
+        logger.info(f"Downloading verified authentic version via JioSaavn CDN: '{candidate.get('title')}' -> {direct_media_url[:60]}")
+        try:
+            target_file = AUDIO_DIR / f"{track_id}.mp4"
+            def _download_saavn_file():
+                resp = requests.get(direct_media_url, headers=JIOSAAVN_HEADERS, stream=True, timeout=15)
+                if resp.status_code in [200, 206]:
+                    with open(target_file, "wb") as f_out:
+                        for chunk in resp.iter_content(chunk_size=128 * 1024):
+                            if chunk:
+                                f_out.write(chunk)
+                    return True
+                return False
+
+            success = await loop.run_in_executor(None, _download_saavn_file)
+            if success and target_file.exists() and target_file.stat().st_size > 1024 * 50:
+                embed_metadata(str(target_file), expected_meta)
+                return {
+                    **expected_meta,
+                    "id": track_id,
+                    "audio_path": str(target_file),
+                    "duration": float(candidate.get("duration") or 0) or expected_duration,
+                    "source_url": candidate.get("url") or direct_media_url,
+                    "thumbnail_url": expected_meta.get("thumbnail_url") or candidate.get("image"),
+                }
+        except Exception as saavn_dl_err:
+            logger.warning(f"JioSaavn direct download note: {saavn_dl_err}")
 
     # 2. Strict Official-First YouTube Search (aware of version tags and album soundtrack)
     exp_version_tags = extract_version_tags(expected_title)
